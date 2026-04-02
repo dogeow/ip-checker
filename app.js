@@ -1,3 +1,5 @@
+// ── State ─────────────────────────────────────────────────────────────────────
+
 const results = {
   domestic: null,
   foreign: null,
@@ -12,108 +14,269 @@ const SUMMARY_IDS = {
   cf: "summary-cf",
 };
 
-function withTimeout(ms = 8000) {
+// ── Network helpers ───────────────────────────────────────────────────────────
+
+function withTimeout(ms) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
-  return {
-    signal: controller.signal,
-    clear: () => clearTimeout(timer),
-  };
+  return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
+/**
+ * Fetch with timeout and explicit redirect control.
+ * Passes through any `redirect` option from options so callers
+ * can control it without being overridden by defaults.
+ */
 async function safeFetch(url, options = {}, timeoutMs = 8000) {
   const guard = withTimeout(timeoutMs);
   try {
-    return await fetch(url, {
+    const merged = {
       ...options,
       signal: guard.signal,
       cache: "no-store",
-    });
+    };
+    // Keep the caller's redirect intent (including "manual").
+    if ("redirect" in options) merged.redirect = options.redirect;
+    return await fetch(url, merged);
   } finally {
     guard.clear();
   }
 }
 
+// ── DOM helpers ──────────────────────────────────────────────────────────────
+
+function el(id) {
+  return document.getElementById(id);
+}
+
 function setResult(key, ip, location, source) {
   results[key] = ip;
-  const ipEl = document.getElementById(`${key}-ip`);
-  const locEl = document.getElementById(`${key}-location`);
-  const srcEl = document.getElementById(`${key}-source`);
+  const ipEl = el(`${key}-ip`);
+  const locEl = el(`${key}-location`);
+  const srcEl = el(`${key}-source`);
+
+  if (!ipEl || !locEl) return;
 
   ipEl.textContent = ip;
+  ipEl.style.cursor = "pointer";
+  ipEl.onclick = (e) => {
+    copyToClipboard(ip);
+    showCopiedTip(e);
+  };
+  ipEl.onmouseenter = (e) => showCopyTip(e);
+  ipEl.onmouseleave = hideCopyTip;
+  ipEl.onmousemove = (e) => moveCopyTip(e);
+
   locEl.textContent = location || "";
-  srcEl.textContent = source ? `via ${source}` : "";
+  if (srcEl) srcEl.textContent = source ? `via ${source}` : "";
+
   updateSummary();
 }
 
 function setError(key, message) {
   results[key] = "error";
-  const ipEl = document.getElementById(`${key}-ip`);
-  ipEl.innerHTML = `<span class="error">${message || "检测失败（可能被阻止访问）"}</span>`;
+  const ipEl = el(`${key}-ip`);
+  if (ipEl) {
+    ipEl.innerHTML = `<span class="error">${message || "检测失败"}</span>`;
+    ipEl.style.cursor = "default";
+    ipEl.onclick = null;
+    ipEl.onmouseenter = null;
+    ipEl.onmouseleave = null;
+    ipEl.onmousemove = null;
+  }
   updateSummary();
 }
 
 function updateSummary() {
-  const done = Object.values(results).every((value) => value !== null);
-  if (!done) {
-    return;
-  }
+  const done = Object.values(results).every((v) => v !== null);
+  if (!done) return;
 
-  const summary = document.getElementById("summary");
-  summary.hidden = false;
+  el("summary").hidden = false;
 
   Object.entries(SUMMARY_IDS).forEach(([key, id]) => {
-    document.getElementById(id).textContent = results[key] || "-";
+    const dom = el(id);
+    if (dom) dom.textContent = results[key] || "-";
   });
 
-  const validIps = Object.values(results).filter(
-    (value) => value && value !== "error"
-  );
+  const validIps = Object.values(results).filter((v) => v && v !== "error");
   const uniqueCount = new Set(validIps).size;
-  const statusEl = document.getElementById("summary-status");
+  const statusEl = el("summary-status");
+  if (!statusEl) return;
 
-  if (uniqueCount === 0) {
+  const blockedGoogle = results.google === "error" || !results.google;
+  const blockedCF = results.cf === "error" || !results.cf;
+  const blockedCount = (blockedGoogle ? 1 : 0) + (blockedCF ? 1 : 0);
+
+  if (validIps.length === 0) {
     statusEl.textContent = "全部失败";
     return;
   }
 
-  if (uniqueCount === 1) {
+  if (blockedCount === 2) {
     statusEl.innerHTML =
-      '同一出口 <span class="badge badge-same">直连</span>';
+      '谷歌&amp;CF 均被阻断 <span class="badge badge-diff">高度封锁</span>';
     return;
   }
 
-  statusEl.innerHTML =
-    `检测到 ${uniqueCount} 个出口 <span class="badge badge-diff">已分流</span>`;
+  if (blockedCount === 1) {
+    statusEl.innerHTML =
+      '部分链路被阻断 <span class="badge badge-diff">部分封锁</span>';
+    return;
+  }
+
+  if (uniqueCount === 1) {
+    statusEl.innerHTML = '同一出口 <span class="badge badge-same">直连</span>';
+    return;
+  }
+
+  statusEl.innerHTML = `检测到 ${uniqueCount} 个出口 <span class="badge badge-diff">已分流</span>`;
 }
 
 function resetUI() {
   Object.keys(results).forEach((key) => {
     results[key] = null;
-    document.getElementById(`${key}-ip`).innerHTML =
-      '<span class="loading">检测中</span>';
-    document.getElementById(`${key}-location`).textContent = "";
-    document.getElementById(`${key}-source`).textContent = "";
+    const ipEl = el(`${key}-ip`);
+    const locEl = el(`${key}-location`);
+    const srcEl = el(`${key}-source`);
+
+    if (ipEl) {
+      ipEl.innerHTML = '<span class="loading">检测中</span>';
+      ipEl.style.cursor = "default";
+      ipEl.onclick = null;
+      ipEl.onmouseenter = null;
+      ipEl.onmouseleave = null;
+      ipEl.onmousemove = null;
+    }
+    if (locEl) locEl.textContent = "";
+    if (srcEl) srcEl.textContent = "";
   });
-  document.getElementById("summary").hidden = true;
+
+  const summary = el("summary");
+  if (summary) summary.hidden = true;
 }
+
+// ── Clipboard ─────────────────────────────────────────────────────────────────
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // Clipboard API blocked — silently skip.
+    return;
+  }
+  showToast("已复制: " + text);
+}
+
+function showToast(msg) {
+  const existing = el("toast");
+  if (existing) existing.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "toast";
+  toast.textContent = msg;
+  toast.style.cssText = [
+    "position:fixed",
+    "bottom:24px",
+    "left:50%",
+    "transform:translateX(-50%)",
+    "background:#3a3a3a",
+    "color:#e8e8e8",
+    "padding:8px 16px",
+    "border-radius:8px",
+    "font-size:0.8rem",
+    "z-index:9999",
+    "pointer-events:none",
+    "opacity:0",
+    "transition:opacity 0.2s",
+  ].join(";");
+  document.body.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.style.opacity = "1";
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      setTimeout(() => toast.remove(), 200);
+    }, 1500);
+  });
+}
+
+// ── Copy tooltip ─────────────────────────────────────────────────────────────
+
+let copyTip = null;
+const isTouchDevice = !window.matchMedia("(hover: hover)").matches;
+
+function getCopyTip() {
+  if (!copyTip) {
+    copyTip = document.createElement("div");
+    copyTip.id = "copy-tip";
+    copyTip.style.cssText = [
+      "position:fixed",
+      "background:#2a2a2a",
+      "border:1px solid #4c4c4c",
+      "color:#9f9f9f",
+      "font-size:0.65rem",
+      'font-family:"SF Pro Text",sans-serif',
+      "padding:3px 8px",
+      "border-radius:5px",
+      "pointer-events:none",
+      "z-index:9999",
+      "opacity:0",
+      "transition:opacity 0.12s",
+      "white-space:nowrap",
+    ].join(";");
+    document.body.appendChild(copyTip);
+  }
+  return copyTip;
+}
+
+function showCopyTip(e) {
+  if (isTouchDevice) return;
+  const tip = getCopyTip();
+  tip.textContent = "点击复制";
+  tip.style.opacity = "1";
+  moveCopyTip(e);
+}
+
+function moveCopyTip(e) {
+  if (isTouchDevice) return;
+  const tip = getCopyTip();
+  tip.style.left = `${e.clientX + 14}px`;
+  tip.style.top = `${e.clientY - 28}px`;
+}
+
+function hideCopyTip() {
+  if (copyTip) copyTip.style.opacity = "0";
+}
+
+function showCopiedTip(e) {
+  const tip = getCopyTip();
+  tip.textContent = "已复制";
+  tip.style.opacity = "1";
+  const x = e ? e.clientX : window.innerWidth / 2;
+  const y = e ? e.clientY : window.innerHeight / 2;
+  tip.style.left = `${x + 14}px`;
+  tip.style.top = `${y - 28}px`;
+  setTimeout(hideCopyTip, 1800);
+}
+
+// ── API checks ──────────────────────────────────────────────────────────────
 
 async function checkDomestic() {
   const apis = [
     {
       url: "https://myip.ipip.net/json",
       source: "ipip.net",
-      parser: (data) => ({
-        ip: data.data?.ip,
-        location: data.data?.location?.join(" ") || "",
+      parse: (d) => ({
+        ip: d.data?.ip,
+        location: (d.data?.location || []).join(" "),
       }),
     },
     {
       url: "https://ip.useragentinfo.com/json",
       source: "useragentinfo.com",
-      parser: (data) => ({
-        ip: data.ip,
-        location: [data.country, data.province, data.city, data.isp]
+      parse: (d) => ({
+        ip: d.ip,
+        location: [d.country, d.province, d.city, d.isp]
           .filter(Boolean)
           .join(" "),
       }),
@@ -121,21 +284,23 @@ async function checkDomestic() {
     {
       url: "https://whois.pconline.com.cn/ipJson.jsp?json=true",
       source: "pconline.com.cn",
-      parser: (data) => ({ ip: data.ip, location: data.addr || "" }),
+      parse: (d) => ({ ip: d.ip, location: d.addr || "" }),
     },
   ];
 
   for (const api of apis) {
     try {
-      const response = await safeFetch(api.url, {}, 6000);
-      const data = await response.json();
-      const parsed = api.parser(data);
-      if (parsed.ip) {
-        setResult("domestic", parsed.ip, parsed.location, api.source);
+      const res = await safeFetch(api.url, {}, 6000);
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (!text.trim()) continue;
+      const data = api.parse(JSON.parse(text));
+      if (data.ip) {
+        setResult("domestic", data.ip, data.location, api.source);
         return;
       }
     } catch {
-      // Try next API source.
+      // try next
     }
   }
 
@@ -147,31 +312,33 @@ async function checkForeign() {
     {
       url: "https://api.ipify.org?format=json",
       source: "ipify.org",
-      parser: (data) => ({ ip: data.ip }),
+      parse: (d) => ({ ip: d.ip }),
     },
     {
       url: "https://api.ip.sb/jsonip",
       source: "ip.sb",
-      parser: (data) => ({ ip: data.ip }),
+      parse: (d) => ({ ip: d.ip }),
     },
     {
       url: "https://httpbin.org/ip",
       source: "httpbin.org",
-      parser: (data) => ({ ip: data.origin }),
+      parse: (d) => ({ ip: d.origin }),
     },
   ];
 
   for (const api of apis) {
     try {
-      const response = await safeFetch(api.url, {}, 6000);
-      const data = await response.json();
-      const parsed = api.parser(data);
-      if (parsed.ip) {
-        setResult("foreign", parsed.ip, "", api.source);
+      const res = await safeFetch(api.url, {}, 6000);
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (!text.trim()) continue;
+      const data = api.parse(JSON.parse(text));
+      if (data.ip) {
+        setResult("foreign", data.ip, "", api.source);
         return;
       }
     } catch {
-      // Try next API source.
+      // try next
     }
   }
 
@@ -179,38 +346,37 @@ async function checkForeign() {
 }
 
 async function checkGoogle() {
+  // First try checkip — it returns a plain-text IP.
   try {
-    const response = await safeFetch(
+    const res = await safeFetch(
       "https://domains.google.com/checkip",
-      {
-        redirect: "manual",
-      },
-      7000
+      { redirect: "manual" },
+      7000,
     );
+    const isRedirect =
+      res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400);
 
-    if (
-      response.type === "opaqueredirect" ||
-      (response.status >= 300 && response.status < 400)
-    ) {
-      const fallback =
+    if (isRedirect) {
+      const ip =
         results.foreign && results.foreign !== "error"
           ? results.foreign
-          : "可达（checkip 重定向）";
-      setResult("google", fallback, "checkip 已重定向", "domains.google.com");
+          : "重定向（可能被拦截）";
+      setResult("google", ip, "checkip 已重定向", "domains.google.com");
       return;
     }
 
-    if (response.ok) {
-      const ip = (await response.text()).trim();
+    if (res.ok) {
+      const ip = (await res.text()).trim();
       if (ip && /^\d/.test(ip)) {
         setResult("google", ip, "", "domains.google.com");
         return;
       }
     }
   } catch {
-    // Continue to 204 probe.
+    // fall through to 204 probes
   }
 
+  // 204 probes — no-cors means we only know reachability.
   const probes = [
     "https://www.googleapis.com/generate_204",
     "https://www.google.com/generate_204",
@@ -219,36 +385,28 @@ async function checkGoogle() {
 
   for (const url of probes) {
     try {
-      const response = await safeFetch(
-        url,
-        {
-          mode: "no-cors",
-        },
-        7000
-      );
+      const res = await safeFetch(url, { mode: "no-cors" }, 7000);
+      const reachable =
+        res.type === "opaque" ||
+        res.type === "opaqueredirect" ||
+        res.ok ||
+        res.status === 204;
 
-      const isReachable =
-        response.type === "opaque" ||
-        response.type === "opaqueredirect" ||
-        response.ok ||
-        response.status === 204;
-
-      if (!isReachable) {
-        continue;
+      if (reachable) {
+        const ip =
+          results.foreign && results.foreign !== "error"
+            ? results.foreign
+            : "可达（IP 同国外出口）";
+        setResult("google", ip, "谷歌链路可达", url.replace("https://", ""));
+        return;
       }
-
-      const fallback =
-        results.foreign && results.foreign !== "error"
-          ? results.foreign
-          : "可达（IP 同国外出口）";
-      setResult("google", fallback, "Google 链路可达", url);
-      return;
     } catch {
-      // Try next probe source.
+      // try next
     }
   }
 
-  setError("google", "谷歌链路不可达");
+  // None reachable — likely blocked.
+  setError("google", "谷歌链路不可达（疑似被拦截）");
 }
 
 async function checkCloudflare() {
@@ -259,30 +417,40 @@ async function checkCloudflare() {
 
   for (const url of traceUrls) {
     try {
-      const response = await safeFetch(url, {}, 7000);
-      const text = await response.text();
-      const ipMatch = text.match(/ip=(.+)/);
-      const locMatch = text.match(/loc=(.+)/);
-      if (!ipMatch) {
-        continue;
-      }
+      const res = await safeFetch(url, {}, 7000);
+      const text = await res.text();
+      if (!text.trim()) continue;
 
+      const ipMatch = text.match(/^ip=(.+)$/m);
+      const locMatch = text.match(/^loc=(.+)$/m);
+      if (!ipMatch) continue;
+
+      const srcHost = url.replace("https://", "");
       setResult(
         "cf",
         ipMatch[1].trim(),
         locMatch ? locMatch[1].trim() : "",
-        url.replace("https://", "")
+        srcHost,
       );
       return;
     } catch {
-      // Try next URL.
+      // try next
     }
   }
 
-  setError("cf");
+  setError("cf", "Cloudflare 链路不可达");
 }
 
+// ── Orchestration ────────────────────────────────────────────────────────────
+
+let checkTimer = null;
+
 function checkAll() {
+  if (checkTimer) return; // debounce rapid clicks
+  checkTimer = setTimeout(() => {
+    checkTimer = null;
+  }, 1200);
+
   resetUI();
   void Promise.allSettled([
     checkDomestic(),
@@ -292,5 +460,5 @@ function checkAll() {
   ]);
 }
 
-document.getElementById("refresh-btn")?.addEventListener("click", checkAll);
+el("refresh-btn")?.addEventListener("click", checkAll);
 checkAll();
