@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IP Checker - 全方位查询您的IP地址</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div>
+        <h1 class="hero-title">全方位查询您的 IP 地址</h1>
+        <p class="hero-subtitle">从不同网络路径检测出口，快速判断直连与分流状态</p>
+      </div>
+      <button class="refresh-btn" id="refresh-btn" type="button">重新检测</button>
+    </header>
+
+    <!-- 汇总 -->
+    <section class="summary" id="summary" hidden>
+      <div class="summary-title">检测汇总</div>
+      <div class="summary-row">
+        <div class="summary-item"><span class="summary-key">国内</span><span class="summary-val" id="summary-domestic">-</span></div>
+        <div class="summary-item"><span class="summary-key">国外</span><span class="summary-val" id="summary-foreign">-</span></div>
+        <div class="summary-item"><span class="summary-key">谷歌</span><span class="summary-val" id="summary-google">-</span></div>
+        <div class="summary-item"><span class="summary-key">Cloudflare</span><span class="summary-val" id="summary-cf">-</span></div>
+        <div class="summary-item summary-item-status"><span class="summary-key">状态</span><span class="summary-val" id="summary-status">-</span></div>
+      </div>
+    </section>
+
+    <main class="card-grid">
+      <!-- 国内测试 -->
+      <article class="card">
+        <div class="card-header">
+          <div class="card-icon domestic">CN</div>
+          <div class="card-title">从国内测试</div>
+        </div>
+        <div id="domestic-ip" class="ip-display"><span class="loading">检测中</span></div>
+        <div id="domestic-location" class="ip-location"></div>
+        <div class="card-desc">这是您访问国内网站所使用的 IP</div>
+        <div id="domestic-source" class="api-source"></div>
+      </article>
+
+      <!-- 国外测试 -->
+      <article class="card">
+        <div class="card-header">
+          <div class="card-icon foreign">INTL</div>
+          <div class="card-title">从国外测试</div>
+        </div>
+        <div id="foreign-ip" class="ip-display"><span class="loading">检测中</span></div>
+        <div id="foreign-location" class="ip-location"></div>
+        <div class="card-desc">这是您访问海外站点所使用的 IP</div>
+        <div id="foreign-source" class="api-source"></div>
+      </article>
+
+      <!-- Google 测试 -->
+      <article class="card">
+        <div class="card-header">
+          <div class="card-icon google">G</div>
+          <div class="card-title">从谷歌测试</div>
+        </div>
+        <div id="google-ip" class="ip-display"><span class="loading">检测中</span></div>
+        <div id="google-location" class="ip-location"></div>
+        <div class="card-desc">这是您访问谷歌系服务所使用的出口</div>
+        <div id="google-source" class="api-source"></div>
+      </article>
+
+      <!-- Cloudflare 测试 -->
+      <article class="card">
+        <div class="card-header">
+          <div class="card-icon cloudflare">CF</div>
+          <div class="card-title">从 Cloudflare 测试</div>
+        </div>
+        <div id="cf-ip" class="ip-display"><span class="loading">检测中</span></div>
+        <div id="cf-location" class="ip-location"></div>
+        <div class="card-desc">这是您访问 Cloudflare 网站时的出口</div>
+        <div id="cf-source" class="api-source"></div>
+      </article>
+    </main>
+
+    <footer class="footer-note">
+      本页面所有检测均在浏览器端完成，不收集任何数据
+    </footer>
+  </div>
+
+  <script src="./app.js" defer></script>
+</body>
+</html>
