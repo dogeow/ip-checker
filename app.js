@@ -69,6 +69,7 @@ const CF_TRACES = [
 ];
 
 let foreignDeferred = createDeferred();
+const geoCache = {};
 
 function createDeferred() {
   let resolve;
@@ -76,6 +77,32 @@ function createDeferred() {
     resolve = res;
   });
   return { promise, resolve };
+}
+
+// ── Geolocation ───────────────────────────────────────────────────────────────
+
+async function lookupLocation(ip) {
+  if (geoCache[ip]) return geoCache[ip];
+  try {
+    const res = await safeFetch(
+      `https://ipinfo.io/${ip}/json`,
+      {},
+      FOREIGN_TIMEOUT_MS,
+    );
+    if (res.ok) {
+      const data = JSON.parse(await res.text());
+      if (data.country) {
+        const location = [data.country, data.region, data.city]
+          .filter(Boolean)
+          .join(" ");
+        geoCache[ip] = location;
+        return location;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
@@ -330,12 +357,20 @@ async function checkForeign() {
       const text = (await res.text()).trim();
       if (!text) continue;
 
-      const ip = api.parseText ? text : api.parse(JSON.parse(text)).ip;
-      if (ip) {
-        state.set("foreign", ip, "");
-        foreignDeferred.resolve();
-        return;
+      let ip;
+      if (api.parseText) {
+        ip = text.split("\n")[0].trim();
+        if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) continue;
+      } else {
+        const parsed = api.parse(JSON.parse(text));
+        ip = parsed.ip;
+        if (!ip) continue;
       }
+
+      const location = await lookupLocation(ip);
+      state.set("foreign", ip, location || "");
+      foreignDeferred.resolve();
+      return;
     } catch {
       // try next
     }
@@ -357,11 +392,13 @@ async function checkGoogle() {
 
     if (isRedirect) {
       await foreignDeferred.promise;
-      const ip =
-        state.results.foreign && state.results.foreign !== "error"
-          ? state.results.foreign
-          : "重定向（可能被拦截）";
-      state.setWarn("google", ip, "checkip 已重定向");
+      const foreignIp = state.results.foreign;
+      if (foreignIp && foreignIp !== "error") {
+        const location = await lookupLocation(foreignIp);
+        state.setWarn("google", foreignIp, location || "checkip 已重定向");
+      } else {
+        state.setWarn("google", "重定向（可能被拦截）", "");
+      }
       return;
     }
 
@@ -387,11 +424,13 @@ async function checkGoogle() {
         res.status === 204;
       if (reachable) {
         await foreignDeferred.promise;
-        const ip =
-          state.results.foreign && state.results.foreign !== "error"
-            ? state.results.foreign
-            : "可达（IP 同国外出口）";
-        state.setWarn("google", ip, "谷歌链路可达");
+        const foreignIp = state.results.foreign;
+        if (foreignIp && foreignIp !== "error") {
+          const location = await lookupLocation(foreignIp);
+          state.setWarn("google", foreignIp, location || "谷歌链路可达");
+        } else {
+          state.setWarn("google", "可达（IP 同国外出口）", "");
+        }
         return;
       }
     } catch {
@@ -403,23 +442,43 @@ async function checkGoogle() {
 }
 
 async function checkCloudflare() {
+  let cfIp = null;
+  let countryCode = null;
+
+  // 1) CF trace for IP and country
   for (const url of CF_TRACES) {
     try {
       const res = await safeFetch(url, {}, FOREIGN_TIMEOUT_MS);
+      if (!res.ok) continue;
       const text = await res.text();
       if (!text.trim()) continue;
 
       const ipMatch = text.match(/^ip=(.+)$/m);
       const locMatch = text.match(/^loc=(.+)$/m);
-      if (!ipMatch) continue;
-
-      state.set("cf", ipMatch[1].trim(), locMatch ? locMatch[1].trim() : "");
-      return;
+      if (ipMatch) {
+        cfIp = ipMatch[1].trim();
+        countryCode = locMatch ? locMatch[1].trim() : null;
+        break;
+      }
     } catch {
       // try next
     }
   }
-  state.setError("cf", "Cloudflare 链路不可达");
+
+  if (!cfIp) {
+    state.setError("cf", "Cloudflare 链路不可达");
+    return;
+  }
+
+  // 2) City-level geolocation lookup
+  const location = await lookupLocation(cfIp);
+  if (location) {
+    state.set("cf", cfIp, location);
+    return;
+  }
+
+  // 3) Fallback: country code only
+  state.set("cf", cfIp, countryCode || "");
 }
 
 // ── Orchestration ─────────────────────────────────────────────────────────────
