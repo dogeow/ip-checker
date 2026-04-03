@@ -8,6 +8,66 @@
 
 const KEYS = ["domestic", "foreign", "google", "cf"];
 
+const STATUS = {
+  SUCCESS: "success",
+  ERROR: "error",
+  WARN: "warn",
+  LOADING: "",
+};
+
+const API_TIMEOUT_MS = 8000;
+const DOMESTIC_TIMEOUT_MS_MS = 6000;
+const FOREIGN_TIMEOUT_MS_MS = 7000;
+const TOAST_DURATION_MS = 1800;
+const REFRESH_DEBOUNCE_MS_MS = 1200;
+
+const CARD_GRID = document.querySelector(".card-grid");
+const isTouch = !window.matchMedia("(hover: hover)").matches;
+const tipEl = el("copy-tip");
+
+const DOMESTIC_APIS = [
+  {
+    url: "https://myip.ipip.net/json",
+    parse: (d) => ({
+      ip: d.data?.ip,
+      location: (d.data?.location || []).join(" "),
+    }),
+  },
+  {
+    url: "https://ip.useragentinfo.com/json",
+    parse: (d) => ({
+      ip: d.ip,
+      location: [d.country, d.province, d.city, d.isp]
+        .filter(Boolean)
+        .join(" "),
+    }),
+  },
+  {
+    url: "https://whois.pconline.com.cn/ipJson.jsp?json=true",
+    parse: (d) => ({ ip: d.ip, location: d.addr || "" }),
+  },
+];
+
+const FOREIGN_APIS = [
+  { url: "https://api.ipify.org?format=json", parse: (d) => ({ ip: d.ip }) },
+  { url: "https://api64.ipify.org?format=json", parse: (d) => ({ ip: d.ip }) },
+  { url: "https://api.ip.sb/jsonip", parse: (d) => ({ ip: d.ip }) },
+  { url: "https://httpbin.org/ip", parse: (d) => ({ ip: d.origin }) },
+  { url: "https://checkip.amazonaws.com/", parseText: true },
+  { url: "https://icanhazip.com/", parseText: true },
+];
+
+const GOOGLE_PROBES = [
+  "https://www.googleapis.com/generate_204",
+  "https://www.google.com/generate_204",
+  "https://www.gstatic.com/generate_204",
+];
+
+const CF_TRACES = [
+  "https://1.1.1.1/cdn-cgi/trace",
+  "https://cloudflare.com/cdn-cgi/trace",
+];
+
 let foreignDeferred = createDeferred();
 
 function createDeferred() {
@@ -35,7 +95,7 @@ function withTimeout(ms) {
  * @param {RequestInit} [options]
  * @param {number} [timeoutMs]
  */
-async function safeFetch(url, options = {}, timeoutMs = 8000) {
+async function safeFetch(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
   const guard = withTimeout(timeoutMs);
   try {
     return await fetch(url, {
@@ -67,13 +127,13 @@ function showToast(msg) {
   toast.textContent = msg;
   toast.classList.add("show");
   clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => toast.classList.remove("show"), 1800);
+  showToast._timer = setTimeout(
+    () => toast.classList.remove("show"),
+    TOAST_DURATION_MS,
+  );
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
-
-const isTouch = !window.matchMedia("(hover: hover)").matches;
-const tipEl = el("copy-tip");
 
 function moveTip(x, y) {
   if (!tipEl) return;
@@ -108,19 +168,19 @@ class AppState {
 
   set(key, ip, location = "") {
     this.results[key] = ip;
-    renderCard(key, ip, location, "success");
+    renderCard(key, ip, location, STATUS.SUCCESS);
     this._updateSummary();
   }
 
   setError(key, message) {
     this.results[key] = "error";
-    renderCard(key, message || "检测失败", "", "error");
+    renderCard(key, message || "检测失败", "", STATUS.ERROR);
     this._updateSummary();
   }
 
   setWarn(key, ip, location = "") {
     this.results[key] = ip;
-    renderCard(key, ip, location, "warn");
+    renderCard(key, ip, location, STATUS.WARN);
     this._updateSummary();
   }
 
@@ -200,14 +260,13 @@ function renderCard(key, ip, location, status) {
   const copyBtn = card?.querySelector(".copy-btn");
 
   if (copyBtn) {
-    copyBtn.hidden = status === "" || status === "error";
+    copyBtn.hidden = status === STATUS.LOADING || status === STATUS.ERROR;
   }
 
   if (ipEl) {
-    if (status === "error") {
+    if (status === STATUS.ERROR) {
       ipEl.innerHTML = `<span class="error">${escapeHtml(ip)}</span>`;
-    } else if (status === "") {
-      // loading state — ip may contain raw HTML like <span class="loading">
+    } else if (status === STATUS.LOADING) {
       ipEl.innerHTML = ip;
     } else {
       ipEl.textContent = ip;
@@ -216,15 +275,13 @@ function renderCard(key, ip, location, status) {
 
   if (locEl) locEl.textContent = location || "";
 
-  if (statusDot) {
-    statusDot.className =
-      "card-status " +
-      (status === "success"
-        ? "success"
-        : status === "error"
-          ? "error"
-          : "warn");
-  }
+  statusDot.className =
+    "card-status " +
+    (status === STATUS.SUCCESS
+      ? STATUS.SUCCESS
+      : status === STATUS.ERROR
+        ? STATUS.ERROR
+        : STATUS.WARN);
 }
 
 function escapeHtml(text) {
@@ -236,7 +293,7 @@ function escapeHtml(text) {
 function resetUI() {
   state.reset();
   KEYS.forEach((k) => {
-    renderCard(k, '<span class="loading">检测中</span>', "", "");
+    renderCard(k, '<span class="loading">检测中</span>', "", STATUS.LOADING);
     const card = document.querySelector(`.card[data-key="${k}"]`);
     const dot = card?.querySelector(".card-status");
     if (dot) dot.className = "card-status";
@@ -247,35 +304,9 @@ function resetUI() {
 // ── API Checks ────────────────────────────────────────────────────────────────
 
 async function checkDomestic() {
-  const apis = [
-    {
-      url: "https://myip.ipip.net/json",
-      source: "ipip.net",
-      parse: (d) => ({
-        ip: d.data?.ip,
-        location: (d.data?.location || []).join(" "),
-      }),
-    },
-    {
-      url: "https://ip.useragentinfo.com/json",
-      source: "useragentinfo.com",
-      parse: (d) => ({
-        ip: d.ip,
-        location: [d.country, d.province, d.city, d.isp]
-          .filter(Boolean)
-          .join(" "),
-      }),
-    },
-    {
-      url: "https://whois.pconline.com.cn/ipJson.jsp?json=true",
-      source: "pconline.com.cn",
-      parse: (d) => ({ ip: d.ip, location: d.addr || "" }),
-    },
-  ];
-
-  for (const api of apis) {
+  for (const api of DOMESTIC_APIS) {
     try {
-      const res = await safeFetch(api.url, {}, 6000);
+      const res = await safeFetch(api.url, {}, DOMESTIC_TIMEOUT_MS);
       if (!res.ok) continue;
       const text = await res.text();
       if (!text.trim()) continue;
@@ -288,58 +319,18 @@ async function checkDomestic() {
       // try next
     }
   }
-
   state.setError("domestic");
 }
 
 async function checkForeign() {
-  const apis = [
-    {
-      url: "https://api.ipify.org?format=json",
-      source: "ipify.org",
-      parse: (d) => ({ ip: d.ip }),
-    },
-    {
-      url: "https://api64.ipify.org?format=json",
-      source: "ipify.org (v6)",
-      parse: (d) => ({ ip: d.ip }),
-    },
-    {
-      url: "https://api.ip.sb/jsonip",
-      source: "ip.sb",
-      parse: (d) => ({ ip: d.ip }),
-    },
-    {
-      url: "https://httpbin.org/ip",
-      source: "httpbin.org",
-      parse: (d) => ({ ip: d.origin }),
-    },
-    {
-      url: "https://checkip.amazonaws.com/",
-      source: "amazonaws.com",
-      parseText: true,
-    },
-    {
-      url: "https://icanhazip.com/",
-      source: "icanhazip.com",
-      parseText: true,
-    },
-  ];
-
-  for (const api of apis) {
+  for (const api of FOREIGN_APIS) {
     try {
-      const res = await safeFetch(api.url, {}, 7000);
+      const res = await safeFetch(api.url, {}, FOREIGN_TIMEOUT_MS);
       if (!res.ok) continue;
       const text = (await res.text()).trim();
       if (!text) continue;
 
-      let ip = "";
-      if (api.parseText) {
-        ip = text;
-      } else {
-        const data = api.parse(JSON.parse(text));
-        ip = data.ip;
-      }
+      const ip = api.parseText ? text : api.parse(JSON.parse(text)).ip;
       if (ip) {
         state.set("foreign", ip, "");
         foreignDeferred.resolve();
@@ -349,7 +340,6 @@ async function checkForeign() {
       // try next
     }
   }
-
   state.setError("foreign");
   foreignDeferred.resolve();
 }
@@ -360,7 +350,7 @@ async function checkGoogle() {
     const res = await safeFetch(
       "https://domains.google.com/checkip",
       { redirect: "manual" },
-      7000,
+      FOREIGN_TIMEOUT_MS,
     );
     const isRedirect =
       res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400);
@@ -386,24 +376,15 @@ async function checkGoogle() {
     // fall through to 204 probes
   }
 
-  // 2) 204 probes — no-cors means JS cannot read the body/status,
-  //    but an opaque/opaqueredirect response means the request
-  //    actually reached the server and came back.
-  const probes = [
-    "https://www.googleapis.com/generate_204",
-    "https://www.google.com/generate_204",
-    "https://www.gstatic.com/generate_204",
-  ];
-
-  for (const url of probes) {
+  // 2) 204 probes
+  for (const url of GOOGLE_PROBES) {
     try {
-      const res = await safeFetch(url, { mode: "no-cors" }, 7000);
+      const res = await safeFetch(url, { mode: "no-cors" }, FOREIGN_TIMEOUT_MS);
       const reachable =
         res.type === "opaque" ||
         res.type === "opaqueredirect" ||
         res.ok ||
         res.status === 204;
-
       if (reachable) {
         await foreignDeferred.promise;
         const ip =
@@ -418,19 +399,13 @@ async function checkGoogle() {
     }
   }
 
-  // 3) All failed — blocked.
   state.setError("google", "谷歌链路不可达（疑似被拦截）");
 }
 
 async function checkCloudflare() {
-  const traceUrls = [
-    "https://1.1.1.1/cdn-cgi/trace",
-    "https://cloudflare.com/cdn-cgi/trace",
-  ];
-
-  for (const url of traceUrls) {
+  for (const url of CF_TRACES) {
     try {
-      const res = await safeFetch(url, {}, 7000);
+      const res = await safeFetch(url, {}, FOREIGN_TIMEOUT_MS);
       const text = await res.text();
       if (!text.trim()) continue;
 
@@ -444,7 +419,6 @@ async function checkCloudflare() {
       // try next
     }
   }
-
   state.setError("cf", "Cloudflare 链路不可达");
 }
 
@@ -458,7 +432,7 @@ function checkAll() {
     state._checkTimer = null;
     btn?.classList.remove("spinning");
     btn?.removeAttribute("disabled");
-  }, 1200);
+  }, REFRESH_DEBOUNCE_MS);
 
   btn?.classList.add("spinning");
   btn?.setAttribute("disabled", "true");
