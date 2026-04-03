@@ -16,14 +16,14 @@ const STATUS = {
 };
 
 const API_TIMEOUT_MS = 8000;
-const DOMESTIC_TIMEOUT_MS_MS = 6000;
-const FOREIGN_TIMEOUT_MS_MS = 7000;
+const DOMESTIC_TIMEOUT_MS = 6000;
+const FOREIGN_TIMEOUT_MS = 7000;
 const TOAST_DURATION_MS = 1800;
-const REFRESH_DEBOUNCE_MS_MS = 1200;
+const REFRESH_DEBOUNCE_MS = 1200;
 
 const CARD_GRID = document.querySelector(".card-grid");
 const isTouch = !window.matchMedia("(hover: hover)").matches;
-const tipEl = el("copy-tip");
+const tipEl = document.getElementById("copy-tip");
 
 const DOMESTIC_APIS = [
   {
