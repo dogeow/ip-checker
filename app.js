@@ -79,6 +79,16 @@ function createDeferred() {
   return { promise, resolve };
 }
 
+// ── IP Validation ────────────────────────────────────────────────────────────
+
+function isValidIP(str) {
+  // IPv4
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(str)) return true;
+  // IPv6 (simplified: contains colons, hex digits, optional brackets)
+  if (/^[\da-fA-F:]+$/.test(str) && str.includes(":")) return true;
+  return false;
+}
+
 // ── Geolocation ───────────────────────────────────────────────────────────────
 
 async function lookupLocation(ip) {
@@ -193,9 +203,9 @@ class AppState {
     });
   }
 
-  set(key, ip, location = "") {
+  set(key, ip, location = "", latency = null, source = null) {
     this.results[key] = ip;
-    renderCard(key, ip, location, STATUS.SUCCESS);
+    renderCard(key, ip, location, STATUS.SUCCESS, latency, source);
     this._updateSummary();
   }
 
@@ -205,9 +215,9 @@ class AppState {
     this._updateSummary();
   }
 
-  setWarn(key, ip, location = "") {
+  setWarn(key, ip, location = "", latency = null, source = null) {
     this.results[key] = ip;
-    renderCard(key, ip, location, STATUS.WARN);
+    renderCard(key, ip, location, STATUS.WARN, latency, source);
     this._updateSummary();
   }
 
@@ -279,7 +289,7 @@ const state = new AppState();
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
-function renderCard(key, ip, location, status) {
+function renderCard(key, ip, location, status, latency = null, source = null) {
   const ipEl = el(`${key}-ip`);
   const locEl = el(`${key}-location`);
   const card = document.querySelector(`.card[data-key="${key}"]`);
@@ -301,6 +311,23 @@ function renderCard(key, ip, location, status) {
   }
 
   if (locEl) locEl.textContent = location || "";
+
+  // Latency & source meta row
+  let metaEl = card?.querySelector(".card-meta");
+  if (!metaEl && card) {
+    metaEl = document.createElement("div");
+    metaEl.className = "card-meta";
+    card.appendChild(metaEl);
+  }
+  if (metaEl) {
+    if (latency !== null && status !== STATUS.LOADING && status !== STATUS.ERROR) {
+      const tier = latency < 300 ? "good" : latency < 800 ? "mid" : "slow";
+      const sourceHtml = source ? `<span class="api-source">${escapeHtml(source)}</span>` : "";
+      metaEl.innerHTML = `<span class="latency ${tier}">${latency} ms</span>${sourceHtml}`;
+    } else {
+      metaEl.innerHTML = "";
+    }
+  }
 
   statusDot.className =
     "card-status " +
@@ -333,13 +360,16 @@ function resetUI() {
 async function checkDomestic() {
   for (const api of DOMESTIC_APIS) {
     try {
+      const t0 = performance.now();
       const res = await safeFetch(api.url, {}, DOMESTIC_TIMEOUT_MS);
       if (!res.ok) continue;
       const text = await res.text();
+      const latency = Math.round(performance.now() - t0);
       if (!text.trim()) continue;
       const data = api.parse(JSON.parse(text));
       if (data.ip) {
-        state.set("domestic", data.ip, data.location);
+        const source = new URL(api.url).hostname;
+        state.set("domestic", data.ip, data.location, latency, source);
         return;
       }
     } catch {
@@ -352,23 +382,26 @@ async function checkDomestic() {
 async function checkForeign() {
   for (const api of FOREIGN_APIS) {
     try {
+      const t0 = performance.now();
       const res = await safeFetch(api.url, {}, FOREIGN_TIMEOUT_MS);
       if (!res.ok) continue;
       const text = (await res.text()).trim();
+      const latency = Math.round(performance.now() - t0);
       if (!text) continue;
 
       let ip;
       if (api.parseText) {
         ip = text.split("\n")[0].trim();
-        if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) continue;
+        if (!isValidIP(ip)) continue;
       } else {
         const parsed = api.parse(JSON.parse(text));
         ip = parsed.ip;
         if (!ip) continue;
       }
 
+      const source = new URL(api.url).hostname;
       const location = await lookupLocation(ip);
-      state.set("foreign", ip, location || "");
+      state.set("foreign", ip, location || "", latency, source);
       foreignDeferred.resolve();
       return;
     } catch {
@@ -382,11 +415,13 @@ async function checkForeign() {
 async function checkGoogle() {
   // 1) Try plain-text IP endpoint first.
   try {
+    const t0 = performance.now();
     const res = await safeFetch(
       "https://domains.google.com/checkip",
       { redirect: "manual" },
       FOREIGN_TIMEOUT_MS,
     );
+    const latency = Math.round(performance.now() - t0);
     const isRedirect =
       res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400);
 
@@ -395,9 +430,9 @@ async function checkGoogle() {
       const foreignIp = state.results.foreign;
       if (foreignIp && foreignIp !== "error") {
         const location = await lookupLocation(foreignIp);
-        state.setWarn("google", foreignIp, location || "checkip 已重定向");
+        state.setWarn("google", foreignIp, location || "checkip 已重定向", latency, "domains.google.com");
       } else {
-        state.setWarn("google", "重定向（可能被拦截）", "");
+        state.setWarn("google", "重定向（可能被拦截）", "", latency);
       }
       return;
     }
@@ -405,7 +440,7 @@ async function checkGoogle() {
     if (res.ok) {
       const ip = (await res.text()).trim();
       if (ip && /^[\d\[]/.test(ip)) {
-        state.set("google", ip, "");
+        state.set("google", ip, "", latency, "domains.google.com");
         return;
       }
     }
@@ -416,7 +451,9 @@ async function checkGoogle() {
   // 2) 204 probes
   for (const url of GOOGLE_PROBES) {
     try {
+      const t0 = performance.now();
       const res = await safeFetch(url, { mode: "no-cors" }, FOREIGN_TIMEOUT_MS);
+      const latency = Math.round(performance.now() - t0);
       const reachable =
         res.type === "opaque" ||
         res.type === "opaqueredirect" ||
@@ -424,12 +461,13 @@ async function checkGoogle() {
         res.status === 204;
       if (reachable) {
         await foreignDeferred.promise;
+        const source = new URL(url).hostname;
         const foreignIp = state.results.foreign;
         if (foreignIp && foreignIp !== "error") {
           const location = await lookupLocation(foreignIp);
-          state.setWarn("google", foreignIp, location || "谷歌链路可达");
+          state.setWarn("google", foreignIp, location || "谷歌链路可达", latency, source);
         } else {
-          state.setWarn("google", "可达（IP 同国外出口）", "");
+          state.setWarn("google", "可达（IP 同国外出口）", "", latency, source);
         }
         return;
       }
@@ -444,11 +482,15 @@ async function checkGoogle() {
 async function checkCloudflare() {
   let cfIp = null;
   let countryCode = null;
+  let latency = null;
+  let source = null;
 
   // 1) CF trace for IP and country
   for (const url of CF_TRACES) {
     try {
+      const t0 = performance.now();
       const res = await safeFetch(url, {}, FOREIGN_TIMEOUT_MS);
+      latency = Math.round(performance.now() - t0);
       if (!res.ok) continue;
       const text = await res.text();
       if (!text.trim()) continue;
@@ -458,6 +500,7 @@ async function checkCloudflare() {
       if (ipMatch) {
         cfIp = ipMatch[1].trim();
         countryCode = locMatch ? locMatch[1].trim() : null;
+        source = new URL(url).hostname;
         break;
       }
     } catch {
@@ -473,12 +516,12 @@ async function checkCloudflare() {
   // 2) City-level geolocation lookup
   const location = await lookupLocation(cfIp);
   if (location) {
-    state.set("cf", cfIp, location);
+    state.set("cf", cfIp, location, latency, source);
     return;
   }
 
   // 3) Fallback: country code only
-  state.set("cf", cfIp, countryCode || "");
+  state.set("cf", cfIp, countryCode || "", latency, source);
 }
 
 // ── Orchestration ─────────────────────────────────────────────────────────────

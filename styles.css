@@ -215,6 +215,8 @@ body {
   flex-direction: column;
   gap: 6px;
   min-height: 0;
+  flex: 1 1 calc(50% - 10px);
+  max-width: calc(50% - 5px);
   transition:
     border-color var(--transition),
     box-shadow var(--transition),
@@ -342,6 +344,12 @@ body {
   line-height: 1.35;
 }
 
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 1em;
+}
 
 .latency {
   color: var(--text-dim);
@@ -527,6 +535,11 @@ body {
 
   .card-grid {
     flex-direction: column;
+  }
+
+  .card {
+    max-width: none;
+    flex-basis: auto;
   }
 
   .copy-btn {
