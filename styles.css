@@ -44,7 +44,7 @@ body {
 
 .page-shell {
   width: min(1220px, 100% - 28px);
-  margin: 12px auto;
+  margin: 0 auto;
   padding: 12px;
 }
 
@@ -125,14 +125,15 @@ body {
 /* ── Summary ─────────────────────────────────────────────────────────────────── */
 
 .summary {
-  margin-bottom: 12px;
+  display: flex;
+  justify-content: center;
+  width: 100%;
   animation: fade-in 0.3s ease both;
 }
 
 .summary-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
   padding: 8px 12px;
   background: var(--card);
@@ -190,10 +191,19 @@ body {
 
 /* ── Card Grid ──────────────────────────────────────────────────────────────── */
 
+.center-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+}
+
 .card-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+  justify-content: center;
 }
 
 .card {
@@ -327,18 +337,11 @@ body {
 }
 
 .card-desc {
-  margin-top: auto;
   color: var(--text-muted);
   font-size: 0.77rem;
   line-height: 1.35;
 }
 
-.card-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
 
 .latency {
   color: var(--text-dim);
@@ -421,11 +424,16 @@ body {
 /* ── Footer ─────────────────────────────────────────────────────────────────── */
 
 .footer-note {
-  margin-top: 14px;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 6px 12px;
   color: var(--text-dim);
   font-size: 0.72rem;
   text-align: center;
   line-height: 1.5;
+  pointer-events: none;
 }
 
 /* ── Toast ──────────────────────────────────────────────────────────────────── */
@@ -494,18 +502,6 @@ body {
 
 /* ── Responsive ─────────────────────────────────────────────────────────────── */
 
-@media (min-width: 1024px) {
-  .page-shell {
-    min-height: calc(100vh - 24px);
-    display: flex;
-    flex-direction: column;
-  }
-
-  .card-grid {
-    flex: 1;
-  }
-}
-
 @media (max-width: 1023px) {
   .page-shell {
     margin: 10px auto;
@@ -525,8 +521,12 @@ body {
     padding: 8px 10px;
   }
 
+  .center-wrap {
+    align-items: stretch;
+  }
+
   .card-grid {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 
   .copy-btn {

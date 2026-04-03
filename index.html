@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="IP Checker - 全方位查询您的IP地址，从不同网络路径检测出口，快速判断直连与分流状态">
-  <title>IP Checker - 全方位查询您的IP地址</title>
+  <title>IP 地址检测</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <div class="page-shell">
     <header class="hero">
       <div class="hero-text">
-        <h1 class="hero-title">全方位查询您的 IP 地址</h1>
+        <h1 class="hero-title">IP 地址检测</h1>
         <p class="hero-subtitle">从不同网络路径检测出口，快速判断直连与分流状态</p>
       </div>
       <button class="refresh-btn" id="refresh-btn" type="button" aria-label="重新检测">
@@ -20,15 +20,16 @@
       </button>
     </header>
 
-    <!-- 汇总 -->
-    <section class="summary" id="summary">
-      <div class="summary-row">
-        <div class="summary-title">检测汇总</div>
-        <div class="summary-status" id="summary-status">检测中…</div>
-      </div>
-    </section>
+    <div class="center-wrap">
+      <!-- 汇总 -->
+      <section class="summary" id="summary">
+        <div class="summary-row">
+          <div class="summary-title">检测汇总</div>
+          <div class="summary-status" id="summary-status">检测中…</div>
+        </div>
+      </section>
 
-    <main class="card-grid">
+      <main class="card-grid">
       <!-- 国内测试 -->
       <article class="card" data-key="domestic">
         <div class="card-header">
@@ -41,10 +42,6 @@
           <button class="copy-btn" aria-label="复制 IP" title="复制 IP" data-copy-target="domestic-ip">📋</button>
         </div>
         <div id="domestic-location" class="ip-location"></div>
-        <div class="card-meta">
-          <span id="domestic-latency" class="latency"></span>
-          <span id="domestic-source" class="api-source"></span>
-        </div>
         <div class="card-desc">这是您访问国内网站所使用的 IP</div>
       </article>
 
@@ -60,10 +57,6 @@
           <button class="copy-btn" aria-label="复制 IP" title="复制 IP" data-copy-target="foreign-ip">📋</button>
         </div>
         <div id="foreign-location" class="ip-location"></div>
-        <div class="card-meta">
-          <span id="foreign-latency" class="latency"></span>
-          <span id="foreign-source" class="api-source"></span>
-        </div>
         <div class="card-desc">这是您访问海外站点所使用的 IP</div>
       </article>
 
@@ -79,10 +72,6 @@
           <button class="copy-btn" aria-label="复制 IP" title="复制 IP" data-copy-target="google-ip">📋</button>
         </div>
         <div id="google-location" class="ip-location"></div>
-        <div class="card-meta">
-          <span id="google-latency" class="latency"></span>
-          <span id="google-source" class="api-source"></span>
-        </div>
         <div class="card-desc">这是您访问谷歌系服务所使用的出口</div>
       </article>
 
@@ -98,13 +87,10 @@
           <button class="copy-btn" aria-label="复制 IP" title="复制 IP" data-copy-target="cf-ip">📋</button>
         </div>
         <div id="cf-location" class="ip-location"></div>
-        <div class="card-meta">
-          <span id="cf-latency" class="latency"></span>
-          <span id="cf-source" class="api-source"></span>
-        </div>
         <div class="card-desc">这是您访问 Cloudflare 网站时的出口</div>
       </article>
     </main>
+    </div>
 
     <footer class="footer-note">
       本页面所有检测均在浏览器端完成，不收集任何数据

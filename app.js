@@ -2,17 +2,19 @@
 // IP Checker — 浏览器端多源 IP 出口检测
 // ═══════════════════════════════════════════════════════════════════════════════
 
-'use strict';
+"use strict";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const KEYS = ['domestic', 'foreign', 'google', 'cf'];
+const KEYS = ["domestic", "foreign", "google", "cf"];
 
 let foreignDeferred = createDeferred();
 
 function createDeferred() {
   let resolve;
-  const promise = new Promise((res) => { resolve = res; });
+  const promise = new Promise((res) => {
+    resolve = res;
+  });
   return { promise, resolve };
 }
 
@@ -39,34 +41,11 @@ async function safeFetch(url, options = {}, timeoutMs = 8000) {
     return await fetch(url, {
       ...options,
       signal: guard.signal,
-      cache: 'no-store',
+      cache: "no-store",
     });
   } finally {
     guard.clear();
   }
-}
-
-/**
- * Measure latency for a fetch.
- * Returns { response, latencyMs }.
- */
-async function measuredFetch(url, options = {}, timeoutMs = 8000) {
-  const start = performance.now();
-  const res = await safeFetch(url, options, timeoutMs);
-  const latencyMs = Math.round(performance.now() - start);
-  return { response: res, latencyMs };
-}
-
-function formatLatency(ms) {
-  if (ms == null || ms < 0) return '';
-  return `${ms} ms`;
-}
-
-function latencyClass(ms) {
-  if (ms == null) return '';
-  if (ms <= 150) return 'good';
-  if (ms <= 400) return 'mid';
-  return 'slow';
 }
 
 // ── Clipboard & Toast ─────────────────────────────────────────────────────────
@@ -77,24 +56,24 @@ async function copyToClipboard(text) {
     showToast(`已复制: ${text}`);
     return true;
   } catch {
-    showToast('复制失败');
+    showToast("复制失败");
     return false;
   }
 }
 
 function showToast(msg) {
-  const toast = el('toast');
+  const toast = el("toast");
   if (!toast) return;
   toast.textContent = msg;
-  toast.classList.add('show');
+  toast.classList.add("show");
   clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => toast.classList.remove('show'), 1800);
+  showToast._timer = setTimeout(() => toast.classList.remove("show"), 1800);
 }
 
 // ── Tooltip ───────────────────────────────────────────────────────────────────
 
-const isTouch = !window.matchMedia('(hover: hover)').matches;
-const tipEl = el('copy-tip');
+const isTouch = !window.matchMedia("(hover: hover)").matches;
+const tipEl = el("copy-tip");
 
 function moveTip(x, y) {
   if (!tipEl) return;
@@ -105,12 +84,12 @@ function moveTip(x, y) {
 function showTip(text, x, y) {
   if (!tipEl || isTouch) return;
   tipEl.textContent = text;
-  tipEl.style.opacity = '1';
+  tipEl.style.opacity = "1";
   moveTip(x, y);
 }
 
 function hideTip() {
-  if (tipEl) tipEl.style.opacity = '0';
+  if (tipEl) tipEl.style.opacity = "0";
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -118,86 +97,90 @@ function hideTip() {
 class AppState {
   constructor() {
     this.results = Object.fromEntries(KEYS.map((k) => [k, null]));
-    this.latencies = Object.fromEntries(KEYS.map((k) => [k, null]));
     this._checkTimer = null;
   }
 
   reset() {
     KEYS.forEach((k) => {
       this.results[k] = null;
-      this.latencies[k] = null;
     });
   }
 
-  set(key, ip, location = '', source = '', latency = null) {
+  set(key, ip, location = "") {
     this.results[key] = ip;
-    this.latencies[key] = latency;
-    renderCard(key, ip, location, source, latency, 'success');
+    renderCard(key, ip, location, "success");
     this._updateSummary();
   }
 
   setError(key, message) {
-    this.results[key] = 'error';
-    this.latencies[key] = null;
-    renderCard(key, message || '检测失败', '', '', null, 'error');
+    this.results[key] = "error";
+    renderCard(key, message || "检测失败", "", "error");
     this._updateSummary();
   }
 
-  setWarn(key, ip, location = '', source = '', latency = null) {
+  setWarn(key, ip, location = "") {
     this.results[key] = ip;
-    this.latencies[key] = latency;
-    renderCard(key, ip, location, source, latency, 'warn');
+    renderCard(key, ip, location, "warn");
     this._updateSummary();
   }
 
   _updateSummary() {
-    const statusEl = el('summary-status');
+    const statusEl = el("summary-status");
     if (!statusEl) return;
 
     const finishedCount = KEYS.filter((k) => this.results[k] !== null).length;
 
     // While checking, show progress if at least one result is in.
     if (finishedCount > 0 && finishedCount < KEYS.length) {
-      const validIps = KEYS.map((k) => this.results[k]).filter((v) => v && v !== 'error');
+      const validIps = KEYS.map((k) => this.results[k]).filter(
+        (v) => v && v !== "error",
+      );
       const uniqueCount = new Set(validIps).size;
       if (validIps.length > 0) {
         statusEl.innerHTML = `已检测到 ${uniqueCount} 个出口 <span class="badge badge-info">检测中…</span>`;
       } else {
-        statusEl.innerHTML = '检测中…';
+        statusEl.innerHTML = "检测中…";
       }
       return;
     }
 
     if (finishedCount === 0) {
-      statusEl.innerHTML = '检测中…';
+      statusEl.innerHTML = "检测中…";
       return;
     }
 
     // All done — final evaluation.
-    const validIps = KEYS.map((k) => this.results[k]).filter((v) => v && v !== 'error');
+    const validIps = KEYS.map((k) => this.results[k]).filter(
+      (v) => v && v !== "error",
+    );
     const uniqueCount = new Set(validIps).size;
 
-    const blockedGoogle = this.results.google === 'error' || !this.results.google;
-    const blockedCF = this.results.cf === 'error' || !this.results.cf;
+    const blockedGoogle =
+      this.results.google === "error" || !this.results.google;
+    const blockedCF = this.results.cf === "error" || !this.results.cf;
     const blockedCount = (blockedGoogle ? 1 : 0) + (blockedCF ? 1 : 0);
 
     if (validIps.length === 0) {
-      statusEl.innerHTML = '全部失败 <span class="badge badge-diff">不可用</span>';
+      statusEl.innerHTML =
+        '全部失败 <span class="badge badge-diff">不可用</span>';
       return;
     }
 
     if (blockedCount === 2) {
-      statusEl.innerHTML = '谷歌 & CF 均被阻断 <span class="badge badge-diff">高度封锁</span>';
+      statusEl.innerHTML =
+        '谷歌 & CF 均被阻断 <span class="badge badge-diff">高度封锁</span>';
       return;
     }
 
     if (blockedCount === 1) {
-      statusEl.innerHTML = '部分链路被阻断 <span class="badge badge-warn">部分封锁</span>';
+      statusEl.innerHTML =
+        '部分链路被阻断 <span class="badge badge-warn">部分封锁</span>';
       return;
     }
 
     if (uniqueCount === 1) {
-      statusEl.innerHTML = '同一出口 <span class="badge badge-same">直连</span>';
+      statusEl.innerHTML =
+        '同一出口 <span class="badge badge-same">直连</span>';
       return;
     }
 
@@ -209,23 +192,21 @@ const state = new AppState();
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
-function renderCard(key, ip, location, source, latency, status) {
-  const ipEl   = el(`${key}-ip`);
-  const locEl  = el(`${key}-location`);
-  const srcEl  = el(`${key}-source`);
-  const latEl  = el(`${key}-latency`);
-  const card   = document.querySelector(`.card[data-key="${key}"]`);
-  const statusDot = card?.querySelector('.card-status');
-  const copyBtn = card?.querySelector('.copy-btn');
+function renderCard(key, ip, location, status) {
+  const ipEl = el(`${key}-ip`);
+  const locEl = el(`${key}-location`);
+  const card = document.querySelector(`.card[data-key="${key}"]`);
+  const statusDot = card?.querySelector(".card-status");
+  const copyBtn = card?.querySelector(".copy-btn");
 
   if (copyBtn) {
-    copyBtn.hidden = status === '' || status === 'error';
+    copyBtn.hidden = status === "" || status === "error";
   }
 
   if (ipEl) {
-    if (status === 'error') {
+    if (status === "error") {
       ipEl.innerHTML = `<span class="error">${escapeHtml(ip)}</span>`;
-    } else if (status === '') {
+    } else if (status === "") {
       // loading state — ip may contain raw HTML like <span class="loading">
       ipEl.innerHTML = ip;
     } else {
@@ -233,20 +214,21 @@ function renderCard(key, ip, location, source, latency, status) {
     }
   }
 
-  if (locEl)  locEl.textContent  = location || '';
-  if (srcEl)  srcEl.textContent  = '';
-  if (latEl) {
-    latEl.textContent = formatLatency(latency);
-    latEl.className = `latency ${latencyClass(latency)}`;
-  }
+  if (locEl) locEl.textContent = location || "";
 
   if (statusDot) {
-    statusDot.className = 'card-status ' + (status === 'success' ? 'success' : status === 'error' ? 'error' : 'warn');
+    statusDot.className =
+      "card-status " +
+      (status === "success"
+        ? "success"
+        : status === "error"
+          ? "error"
+          : "warn");
   }
 }
 
 function escapeHtml(text) {
-  const div = document.createElement('div');
+  const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
 }
@@ -254,10 +236,10 @@ function escapeHtml(text) {
 function resetUI() {
   state.reset();
   KEYS.forEach((k) => {
-    renderCard(k, '<span class="loading">检测中</span>', '', '', null, '');
+    renderCard(k, '<span class="loading">检测中</span>', "", "");
     const card = document.querySelector(`.card[data-key="${k}"]`);
-    const dot = card?.querySelector('.card-status');
-    if (dot) dot.className = 'card-status';
+    const dot = card?.querySelector(".card-status");
+    if (dot) dot.className = "card-status";
   });
   state._updateSummary();
 }
@@ -267,37 +249,39 @@ function resetUI() {
 async function checkDomestic() {
   const apis = [
     {
-      url: 'https://myip.ipip.net/json',
-      source: 'ipip.net',
+      url: "https://myip.ipip.net/json",
+      source: "ipip.net",
       parse: (d) => ({
         ip: d.data?.ip,
-        location: (d.data?.location || []).join(' '),
+        location: (d.data?.location || []).join(" "),
       }),
     },
     {
-      url: 'https://ip.useragentinfo.com/json',
-      source: 'useragentinfo.com',
+      url: "https://ip.useragentinfo.com/json",
+      source: "useragentinfo.com",
       parse: (d) => ({
         ip: d.ip,
-        location: [d.country, d.province, d.city, d.isp].filter(Boolean).join(' '),
+        location: [d.country, d.province, d.city, d.isp]
+          .filter(Boolean)
+          .join(" "),
       }),
     },
     {
-      url: 'https://whois.pconline.com.cn/ipJson.jsp?json=true',
-      source: 'pconline.com.cn',
-      parse: (d) => ({ ip: d.ip, location: d.addr || '' }),
+      url: "https://whois.pconline.com.cn/ipJson.jsp?json=true",
+      source: "pconline.com.cn",
+      parse: (d) => ({ ip: d.ip, location: d.addr || "" }),
     },
   ];
 
   for (const api of apis) {
     try {
-      const { response, latencyMs } = await measuredFetch(api.url, {}, 6000);
-      if (!response.ok) continue;
-      const text = await response.text();
+      const res = await safeFetch(api.url, {}, 6000);
+      if (!res.ok) continue;
+      const text = await res.text();
       if (!text.trim()) continue;
       const data = api.parse(JSON.parse(text));
       if (data.ip) {
-        state.set('domestic', data.ip, data.location, api.source, latencyMs);
+        state.set("domestic", data.ip, data.location);
         return;
       }
     } catch {
@@ -305,51 +289,51 @@ async function checkDomestic() {
     }
   }
 
-  state.setError('domestic');
+  state.setError("domestic");
 }
 
 async function checkForeign() {
   const apis = [
     {
-      url: 'https://api.ipify.org?format=json',
-      source: 'ipify.org',
+      url: "https://api.ipify.org?format=json",
+      source: "ipify.org",
       parse: (d) => ({ ip: d.ip }),
     },
     {
-      url: 'https://api64.ipify.org?format=json',
-      source: 'ipify.org (v6)',
+      url: "https://api64.ipify.org?format=json",
+      source: "ipify.org (v6)",
       parse: (d) => ({ ip: d.ip }),
     },
     {
-      url: 'https://api.ip.sb/jsonip',
-      source: 'ip.sb',
+      url: "https://api.ip.sb/jsonip",
+      source: "ip.sb",
       parse: (d) => ({ ip: d.ip }),
     },
     {
-      url: 'https://httpbin.org/ip',
-      source: 'httpbin.org',
+      url: "https://httpbin.org/ip",
+      source: "httpbin.org",
       parse: (d) => ({ ip: d.origin }),
     },
     {
-      url: 'https://checkip.amazonaws.com/',
-      source: 'amazonaws.com',
+      url: "https://checkip.amazonaws.com/",
+      source: "amazonaws.com",
       parseText: true,
     },
     {
-      url: 'https://icanhazip.com/',
-      source: 'icanhazip.com',
+      url: "https://icanhazip.com/",
+      source: "icanhazip.com",
       parseText: true,
     },
   ];
 
   for (const api of apis) {
     try {
-      const { response, latencyMs } = await measuredFetch(api.url, {}, 7000);
-      if (!response.ok) continue;
-      const text = (await response.text()).trim();
+      const res = await safeFetch(api.url, {}, 7000);
+      if (!res.ok) continue;
+      const text = (await res.text()).trim();
       if (!text) continue;
 
-      let ip = '';
+      let ip = "";
       if (api.parseText) {
         ip = text;
       } else {
@@ -357,7 +341,7 @@ async function checkForeign() {
         ip = data.ip;
       }
       if (ip) {
-        state.set('foreign', ip, '', api.source, latencyMs);
+        state.set("foreign", ip, "");
         foreignDeferred.resolve();
         return;
       }
@@ -366,36 +350,35 @@ async function checkForeign() {
     }
   }
 
-  state.setError('foreign');
+  state.setError("foreign");
   foreignDeferred.resolve();
 }
 
 async function checkGoogle() {
   // 1) Try plain-text IP endpoint first.
   try {
-    const { response, latencyMs } = await measuredFetch(
-      'https://domains.google.com/checkip',
-      { redirect: 'manual' },
+    const res = await safeFetch(
+      "https://domains.google.com/checkip",
+      { redirect: "manual" },
       7000,
     );
     const isRedirect =
-      response.type === 'opaqueredirect' ||
-      (response.status >= 300 && response.status < 400);
+      res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400);
 
     if (isRedirect) {
       await foreignDeferred.promise;
       const ip =
-        state.results.foreign && state.results.foreign !== 'error'
+        state.results.foreign && state.results.foreign !== "error"
           ? state.results.foreign
-          : '重定向（可能被拦截）';
-      state.setWarn('google', ip, 'checkip 已重定向', 'domains.google.com', latencyMs);
+          : "重定向（可能被拦截）";
+      state.setWarn("google", ip, "checkip 已重定向");
       return;
     }
 
-    if (response.ok) {
-      const ip = (await response.text()).trim();
+    if (res.ok) {
+      const ip = (await res.text()).trim();
       if (ip && /^[\d\[]/.test(ip)) {
-        state.set('google', ip, '', 'domains.google.com', latencyMs);
+        state.set("google", ip, "");
         return;
       }
     }
@@ -407,29 +390,27 @@ async function checkGoogle() {
   //    but an opaque/opaqueredirect response means the request
   //    actually reached the server and came back.
   const probes = [
-    'https://www.googleapis.com/generate_204',
-    'https://www.google.com/generate_204',
-    'https://www.gstatic.com/generate_204',
+    "https://www.googleapis.com/generate_204",
+    "https://www.google.com/generate_204",
+    "https://www.gstatic.com/generate_204",
   ];
 
   for (const url of probes) {
     try {
-      const start = performance.now();
-      const res = await safeFetch(url, { mode: 'no-cors' }, 7000);
-      const latencyMs = Math.round(performance.now() - start);
+      const res = await safeFetch(url, { mode: "no-cors" }, 7000);
       const reachable =
-        res.type === 'opaque' ||
-        res.type === 'opaqueredirect' ||
+        res.type === "opaque" ||
+        res.type === "opaqueredirect" ||
         res.ok ||
         res.status === 204;
 
       if (reachable) {
         await foreignDeferred.promise;
         const ip =
-          state.results.foreign && state.results.foreign !== 'error'
+          state.results.foreign && state.results.foreign !== "error"
             ? state.results.foreign
-            : '可达（IP 同国外出口）';
-        state.setWarn('google', ip, '谷歌链路可达', '', latencyMs);
+            : "可达（IP 同国外出口）";
+        state.setWarn("google", ip, "谷歌链路可达");
         return;
       }
     } catch {
@@ -438,56 +419,49 @@ async function checkGoogle() {
   }
 
   // 3) All failed — blocked.
-  state.setError('google', '谷歌链路不可达（疑似被拦截）');
+  state.setError("google", "谷歌链路不可达（疑似被拦截）");
 }
 
 async function checkCloudflare() {
   const traceUrls = [
-    'https://1.1.1.1/cdn-cgi/trace',
-    'https://cloudflare.com/cdn-cgi/trace',
+    "https://1.1.1.1/cdn-cgi/trace",
+    "https://cloudflare.com/cdn-cgi/trace",
   ];
 
   for (const url of traceUrls) {
     try {
-      const { response, latencyMs } = await measuredFetch(url, {}, 7000);
-      const text = await response.text();
+      const res = await safeFetch(url, {}, 7000);
+      const text = await res.text();
       if (!text.trim()) continue;
 
       const ipMatch = text.match(/^ip=(.+)$/m);
       const locMatch = text.match(/^loc=(.+)$/m);
       if (!ipMatch) continue;
 
-      const srcHost = url.replace('https://', '');
-      state.set(
-        'cf',
-        ipMatch[1].trim(),
-        locMatch ? locMatch[1].trim() : '',
-        srcHost,
-        latencyMs,
-      );
+      state.set("cf", ipMatch[1].trim(), locMatch ? locMatch[1].trim() : "");
       return;
     } catch {
       // try next
     }
   }
 
-  state.setError('cf', 'Cloudflare 链路不可达');
+  state.setError("cf", "Cloudflare 链路不可达");
 }
 
 // ── Orchestration ─────────────────────────────────────────────────────────────
 
 function checkAll() {
-  const btn = el('refresh-btn');
+  const btn = el("refresh-btn");
   if (state._checkTimer) return;
 
   state._checkTimer = setTimeout(() => {
     state._checkTimer = null;
-    btn?.classList.remove('spinning');
-    btn?.removeAttribute('disabled');
+    btn?.classList.remove("spinning");
+    btn?.removeAttribute("disabled");
   }, 1200);
 
-  btn?.classList.add('spinning');
-  btn?.setAttribute('disabled', 'true');
+  btn?.classList.add("spinning");
+  btn?.setAttribute("disabled", "true");
 
   foreignDeferred = createDeferred();
   resetUI();
@@ -501,11 +475,11 @@ function checkAll() {
 
 // ── Event Wiring ──────────────────────────────────────────────────────────────
 
-el('refresh-btn')?.addEventListener('click', checkAll);
+el("refresh-btn")?.addEventListener("click", checkAll);
 
 // Delegated copy buttons
-document.querySelector('.card-grid')?.addEventListener('click', (e) => {
-  const btn = e.target.closest('.copy-btn');
+document.querySelector(".card-grid")?.addEventListener("click", (e) => {
+  const btn = e.target.closest(".copy-btn");
   if (!btn) return;
   const targetId = btn.dataset.copyTarget;
   const ipEl = el(targetId);
@@ -513,39 +487,39 @@ document.querySelector('.card-grid')?.addEventListener('click', (e) => {
 
   // Extract plain text (strip tags / type badge)
   const text = ipEl.textContent?.trim();
-  if (!text || text.includes('检测中') || text.includes('失败')) return;
+  if (!text || text.includes("检测中") || text.includes("失败")) return;
 
   copyToClipboard(text);
 });
 
 // Tooltip for copy buttons (desktop hover)
-document.querySelector('.card-grid')?.addEventListener('mouseover', (e) => {
-  const btn = e.target.closest('.copy-btn');
+document.querySelector(".card-grid")?.addEventListener("mouseover", (e) => {
+  const btn = e.target.closest(".copy-btn");
   if (!btn || isTouch) return;
-  showTip('点击复制', e.clientX, e.clientY);
+  showTip("点击复制", e.clientX, e.clientY);
 });
 
-document.querySelector('.card-grid')?.addEventListener('mousemove', (e) => {
-  const btn = e.target.closest('.copy-btn');
+document.querySelector(".card-grid")?.addEventListener("mousemove", (e) => {
+  const btn = e.target.closest(".copy-btn");
   if (!btn || isTouch) return;
   moveTip(e.clientX, e.clientY);
 });
 
-document.querySelector('.card-grid')?.addEventListener('mouseout', (e) => {
-  const btn = e.target.closest('.copy-btn');
+document.querySelector(".card-grid")?.addEventListener("mouseout", (e) => {
+  const btn = e.target.closest(".copy-btn");
   if (!btn) return;
   hideTip();
 });
 
 // Also allow clicking the IP text itself to copy (legacy UX)
-document.querySelector('.card-grid')?.addEventListener('click', (e) => {
-  const ipEl = e.target.closest('.ip-display');
+document.querySelector(".card-grid")?.addEventListener("click", (e) => {
+  const ipEl = e.target.closest(".ip-display");
   if (!ipEl) return;
   // Don't intercept if we clicked the copy button (already handled)
-  if (e.target.closest('.copy-btn')) return;
+  if (e.target.closest(".copy-btn")) return;
 
   const text = ipEl.textContent?.trim();
-  if (!text || text.includes('检测中') || text.includes('失败')) return;
+  if (!text || text.includes("检测中") || text.includes("失败")) return;
   copyToClipboard(text);
 });
 
