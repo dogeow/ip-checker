@@ -103,9 +103,9 @@ const DOMESTIC_APIS = [
 
 ## Privacy
 
-✅ **Runs Locally** — All detection executes in your browser
-✅ **Zero Collection** — No data is collected, stored, or transmitted
-✅ **No Tracking** — No analytics, statistics, or ads
+- ✅ **Runs Locally** — All detection executes in your browser
+- ✅ **Zero Collection** — No data is collected, stored, or transmitted
+- ✅ **No Tracking** — No analytics, statistics, or ads
 
 External API calls follow their respective privacy policies.
 
