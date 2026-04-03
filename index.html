@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="IP Checker - 全方位查询您的IP地址，从不同网络路径检测出口，快速判断直连与分流状态">
   <title>IP 地址检测</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%232d2d2d'/%3E%3Ctext x='50%25' y='54%25' text-anchor='middle' font-family='Arial' font-size='24' fill='%23e8e8e8'%3EIP%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -25,7 +26,7 @@
       <section class="summary" id="summary">
         <div class="summary-row">
           <div class="summary-title">检测汇总</div>
-          <div class="summary-status" id="summary-status">检测中…</div>
+          <div class="summary-status" id="summary-status" role="status" aria-live="polite">检测中…</div>
         </div>
       </section>
 

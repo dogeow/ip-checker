@@ -68,8 +68,8 @@ const CF_TRACES = [
   "https://cloudflare.com/cdn-cgi/trace",
 ];
 
-let foreignDeferred = createDeferred();
-const geoCache = {};
+let currentRun = null;
+const geoCache = new Map();
 
 function createDeferred() {
   let resolve;
@@ -79,24 +79,65 @@ function createDeferred() {
   return { promise, resolve };
 }
 
+function createRunContext() {
+  const nextId = (currentRun?.id || 0) + 1;
+
+  if (currentRun) {
+    currentRun.foreignDeferred.resolve();
+    currentRun.controller.abort();
+  }
+
+  const controller = new AbortController();
+  const run = {
+    id: nextId,
+    controller,
+    signal: controller.signal,
+    foreignDeferred: createDeferred(),
+  };
+
+  currentRun = run;
+  return run;
+}
+
+function isCurrentRun(runId) {
+  return currentRun?.id === runId;
+}
+
+function isAbortError(error) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 // ── IP Validation ────────────────────────────────────────────────────────────
 
 function isValidIP(str) {
-  // IPv4
-  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(str)) return true;
-  // IPv6 (simplified: contains colons, hex digits, optional brackets)
-  if (/^[\da-fA-F:]+$/.test(str) && str.includes(":")) return true;
-  return false;
+  const value = str.trim();
+
+  const ipv4Parts = value.split(".");
+  if (
+    ipv4Parts.length === 4 &&
+    ipv4Parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+  ) {
+    return true;
+  }
+
+  if (!value.includes(":")) return false;
+
+  const normalized = value.replace(/^\[|\]$/g, "");
+  try {
+    return new URL(`http://[${normalized}]/`).hostname === `[${normalized}]`;
+  } catch {
+    return false;
+  }
 }
 
 // ── Geolocation ───────────────────────────────────────────────────────────────
 
-async function lookupLocation(ip) {
-  if (geoCache[ip]) return geoCache[ip];
+async function lookupLocation(ip, signal) {
+  if (geoCache.has(ip)) return geoCache.get(ip);
   try {
     const res = await safeFetch(
       `https://ipinfo.io/${ip}/json`,
-      {},
+      { signal },
       FOREIGN_TIMEOUT_MS,
     );
     if (res.ok) {
@@ -105,11 +146,12 @@ async function lookupLocation(ip) {
         const location = [data.country, data.region, data.city]
           .filter(Boolean)
           .join(" ");
-        geoCache[ip] = location;
+        geoCache.set(ip, location);
         return location;
       }
     }
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     // ignore
   }
   return null;
@@ -126,6 +168,28 @@ function withTimeout(ms) {
   return { signal: controller.signal, clear: () => clearTimeout(timer) };
 }
 
+function combineSignals(signals) {
+  const activeSignals = signals.filter(Boolean);
+  if (activeSignals.length <= 1) return activeSignals[0];
+
+  if (typeof AbortSignal.any === "function") {
+    return AbortSignal.any(activeSignals);
+  }
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+
+  activeSignals.forEach((signal) => {
+    if (signal.aborted) {
+      controller.abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  });
+
+  return controller.signal;
+}
+
 /**
  * Fetch with timeout. Caller redirect option is preserved.
  * @param {string} url
@@ -137,7 +201,7 @@ async function safeFetch(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
   try {
     return await fetch(url, {
       ...options,
-      signal: guard.signal,
+      signal: combineSignals([guard.signal, options.signal]),
       cache: "no-store",
     });
   } finally {
@@ -147,9 +211,34 @@ async function safeFetch(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
 
 // ── Clipboard & Toast ─────────────────────────────────────────────────────────
 
+function fallbackCopyToClipboard(text) {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } finally {
+    textarea.remove();
+  }
+
+  return copied;
+}
+
 async function copyToClipboard(text) {
   try {
-    await navigator.clipboard.writeText(text);
+    if (navigator.clipboard?.writeText && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else if (!fallbackCopyToClipboard(text)) {
+      throw new Error("Clipboard API unavailable");
+    }
     showToast(`已复制: ${text}`);
     return true;
   } catch {
@@ -189,6 +278,19 @@ function hideTip() {
   if (tipEl) tipEl.style.opacity = "0";
 }
 
+function setSummaryStatus(text, badgeText = "", badgeClass = "") {
+  const statusEl = el("summary-status");
+  if (!statusEl) return;
+
+  statusEl.textContent = text;
+  if (!badgeText) return;
+
+  const badge = document.createElement("span");
+  badge.className = `badge ${badgeClass}`;
+  badge.textContent = badgeText;
+  statusEl.append(" ", badge);
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 class AppState {
@@ -203,28 +305,35 @@ class AppState {
     });
   }
 
-  set(key, ip, location = "", latency = null, source = null) {
+  set(key, ip, location = "", latency = null, source = null, runId = currentRun?.id) {
+    if (!isCurrentRun(runId)) return;
     this.results[key] = ip;
     renderCard(key, ip, location, STATUS.SUCCESS, latency, source);
     this._updateSummary();
   }
 
-  setError(key, message) {
+  setError(key, message, runId = currentRun?.id) {
+    if (!isCurrentRun(runId)) return;
     this.results[key] = "error";
     renderCard(key, message || "检测失败", "", STATUS.ERROR);
     this._updateSummary();
   }
 
-  setWarn(key, ip, location = "", latency = null, source = null) {
+  setWarn(
+    key,
+    ip,
+    location = "",
+    latency = null,
+    source = null,
+    runId = currentRun?.id,
+  ) {
+    if (!isCurrentRun(runId)) return;
     this.results[key] = ip;
     renderCard(key, ip, location, STATUS.WARN, latency, source);
     this._updateSummary();
   }
 
   _updateSummary() {
-    const statusEl = el("summary-status");
-    if (!statusEl) return;
-
     const finishedCount = KEYS.filter((k) => this.results[k] !== null).length;
 
     // While checking, show progress if at least one result is in.
@@ -234,15 +343,15 @@ class AppState {
       );
       const uniqueCount = new Set(validIps).size;
       if (validIps.length > 0) {
-        statusEl.innerHTML = `已检测到 ${uniqueCount} 个出口 <span class="badge badge-info">检测中…</span>`;
+        setSummaryStatus(`已检测到 ${uniqueCount} 个出口`, "检测中…", "badge-info");
       } else {
-        statusEl.innerHTML = "检测中…";
+        setSummaryStatus("检测中…");
       }
       return;
     }
 
     if (finishedCount === 0) {
-      statusEl.innerHTML = "检测中…";
+      setSummaryStatus("检测中…");
       return;
     }
 
@@ -258,30 +367,26 @@ class AppState {
     const blockedCount = (blockedGoogle ? 1 : 0) + (blockedCF ? 1 : 0);
 
     if (validIps.length === 0) {
-      statusEl.innerHTML =
-        '全部失败 <span class="badge badge-diff">不可用</span>';
+      setSummaryStatus("全部失败", "不可用", "badge-diff");
       return;
     }
 
     if (blockedCount === 2) {
-      statusEl.innerHTML =
-        '谷歌 & CF 均被阻断 <span class="badge badge-diff">高度封锁</span>';
+      setSummaryStatus("谷歌 & CF 均被阻断", "高度封锁", "badge-diff");
       return;
     }
 
     if (blockedCount === 1) {
-      statusEl.innerHTML =
-        '部分链路被阻断 <span class="badge badge-warn">部分封锁</span>';
+      setSummaryStatus("部分链路被阻断", "部分封锁", "badge-warn");
       return;
     }
 
     if (uniqueCount === 1) {
-      statusEl.innerHTML =
-        '同一出口 <span class="badge badge-same">直连</span>';
+      setSummaryStatus("同一出口", "直连", "badge-same");
       return;
     }
 
-    statusEl.innerHTML = `检测到 ${uniqueCount} 个出口 <span class="badge badge-info">已分流</span>`;
+    setSummaryStatus(`检测到 ${uniqueCount} 个出口`, "已分流", "badge-info");
   }
 }
 
@@ -297,7 +402,10 @@ function renderCard(key, ip, location, status, latency = null, source = null) {
   const copyBtn = card?.querySelector(".copy-btn");
 
   if (copyBtn) {
-    copyBtn.hidden = status === STATUS.LOADING || status === STATUS.ERROR;
+    copyBtn.hidden =
+      status === STATUS.LOADING ||
+      status === STATUS.ERROR ||
+      !isValidIP(ip);
   }
 
   if (ipEl) {
@@ -322,20 +430,33 @@ function renderCard(key, ip, location, status, latency = null, source = null) {
   if (metaEl) {
     if (latency !== null && status !== STATUS.LOADING && status !== STATUS.ERROR) {
       const tier = latency < 300 ? "good" : latency < 800 ? "mid" : "slow";
-      const sourceHtml = source ? `<span class="api-source">${escapeHtml(source)}</span>` : "";
-      metaEl.innerHTML = `<span class="latency ${tier}">${latency} ms</span>${sourceHtml}`;
+      metaEl.textContent = "";
+
+      const latencyEl = document.createElement("span");
+      latencyEl.className = `latency ${tier}`;
+      latencyEl.textContent = `${latency} ms`;
+      metaEl.appendChild(latencyEl);
+
+      if (source) {
+        const sourceEl = document.createElement("span");
+        sourceEl.className = "api-source";
+        sourceEl.textContent = source;
+        metaEl.appendChild(sourceEl);
+      }
     } else {
-      metaEl.innerHTML = "";
+      metaEl.textContent = "";
     }
   }
 
-  statusDot.className =
-    "card-status " +
-    (status === STATUS.SUCCESS
-      ? STATUS.SUCCESS
-      : status === STATUS.ERROR
-        ? STATUS.ERROR
-        : STATUS.WARN);
+  if (statusDot) {
+    statusDot.className =
+      "card-status " +
+      (status === STATUS.SUCCESS
+        ? STATUS.SUCCESS
+        : status === STATUS.ERROR
+          ? STATUS.ERROR
+          : STATUS.WARN);
+  }
 }
 
 function escapeHtml(text) {
@@ -357,102 +478,83 @@ function resetUI() {
 
 // ── API Checks ────────────────────────────────────────────────────────────────
 
-async function checkDomestic() {
+async function checkDomestic(run) {
   for (const api of DOMESTIC_APIS) {
     try {
       const t0 = performance.now();
-      const res = await safeFetch(api.url, {}, DOMESTIC_TIMEOUT_MS);
+      const res = await safeFetch(
+        api.url,
+        { signal: run.signal },
+        DOMESTIC_TIMEOUT_MS,
+      );
       if (!res.ok) continue;
       const text = await res.text();
       const latency = Math.round(performance.now() - t0);
       if (!text.trim()) continue;
       const data = api.parse(JSON.parse(text));
-      if (data.ip) {
+      if (data.ip && isValidIP(data.ip)) {
         const source = new URL(api.url).hostname;
-        state.set("domestic", data.ip, data.location, latency, source);
+        state.set("domestic", data.ip, data.location, latency, source, run.id);
         return;
       }
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return;
       // try next
     }
   }
-  state.setError("domestic");
+  state.setError("domestic", null, run.id);
 }
 
-async function checkForeign() {
-  for (const api of FOREIGN_APIS) {
-    try {
-      const t0 = performance.now();
-      const res = await safeFetch(api.url, {}, FOREIGN_TIMEOUT_MS);
-      if (!res.ok) continue;
-      const text = (await res.text()).trim();
-      const latency = Math.round(performance.now() - t0);
-      if (!text) continue;
-
-      let ip;
-      if (api.parseText) {
-        ip = text.split("\n")[0].trim();
-        if (!isValidIP(ip)) continue;
-      } else {
-        const parsed = api.parse(JSON.parse(text));
-        ip = parsed.ip;
-        if (!ip) continue;
-      }
-
-      const source = new URL(api.url).hostname;
-      const location = await lookupLocation(ip);
-      state.set("foreign", ip, location || "", latency, source);
-      foreignDeferred.resolve();
-      return;
-    } catch {
-      // try next
-    }
-  }
-  state.setError("foreign");
-  foreignDeferred.resolve();
-}
-
-async function checkGoogle() {
-  // 1) Try plain-text IP endpoint first.
+async function checkForeign(run) {
   try {
-    const t0 = performance.now();
-    const res = await safeFetch(
-      "https://domains.google.com/checkip",
-      { redirect: "manual" },
-      FOREIGN_TIMEOUT_MS,
-    );
-    const latency = Math.round(performance.now() - t0);
-    const isRedirect =
-      res.type === "opaqueredirect" || (res.status >= 300 && res.status < 400);
+    for (const api of FOREIGN_APIS) {
+      try {
+        const t0 = performance.now();
+        const res = await safeFetch(
+          api.url,
+          { signal: run.signal },
+          FOREIGN_TIMEOUT_MS,
+        );
+        if (!res.ok) continue;
+        const text = (await res.text()).trim();
+        const latency = Math.round(performance.now() - t0);
+        if (!text) continue;
 
-    if (isRedirect) {
-      await foreignDeferred.promise;
-      const foreignIp = state.results.foreign;
-      if (foreignIp && foreignIp !== "error") {
-        const location = await lookupLocation(foreignIp);
-        state.setWarn("google", foreignIp, location || "checkip 已重定向", latency, "domains.google.com");
-      } else {
-        state.setWarn("google", "重定向（可能被拦截）", "", latency);
-      }
-      return;
-    }
+        let ip;
+        if (api.parseText) {
+          ip = text.split("\n")[0].trim();
+        } else {
+          const parsed = api.parse(JSON.parse(text));
+          ip = parsed.ip?.trim();
+        }
 
-    if (res.ok) {
-      const ip = (await res.text()).trim();
-      if (ip && /^[\d\[]/.test(ip)) {
-        state.set("google", ip, "", latency, "domains.google.com");
+        if (!ip || !isValidIP(ip)) continue;
+
+        const source = new URL(api.url).hostname;
+        const location = await lookupLocation(ip, run.signal);
+        state.set("foreign", ip, location || "", latency, source, run.id);
         return;
+      } catch (error) {
+        if (isAbortError(error)) return;
+        // try next
       }
     }
-  } catch {
-    // fall through to 204 probes
-  }
 
-  // 2) 204 probes
+    state.setError("foreign", null, run.id);
+  } finally {
+    run.foreignDeferred.resolve();
+  }
+}
+
+async function checkGoogle(run) {
   for (const url of GOOGLE_PROBES) {
     try {
       const t0 = performance.now();
-      const res = await safeFetch(url, { mode: "no-cors" }, FOREIGN_TIMEOUT_MS);
+      const res = await safeFetch(
+        url,
+        { mode: "no-cors", signal: run.signal },
+        FOREIGN_TIMEOUT_MS,
+      );
       const latency = Math.round(performance.now() - t0);
       const reachable =
         res.type === "opaque" ||
@@ -460,26 +562,42 @@ async function checkGoogle() {
         res.ok ||
         res.status === 204;
       if (reachable) {
-        await foreignDeferred.promise;
+        await run.foreignDeferred.promise;
+        if (!isCurrentRun(run.id)) return;
         const source = new URL(url).hostname;
         const foreignIp = state.results.foreign;
         if (foreignIp && foreignIp !== "error") {
-          const location = await lookupLocation(foreignIp);
-          state.setWarn("google", foreignIp, location || "谷歌链路可达", latency, source);
+          const location = await lookupLocation(foreignIp, run.signal);
+          state.setWarn(
+            "google",
+            foreignIp,
+            location || "谷歌链路可达",
+            latency,
+            source,
+            run.id,
+          );
         } else {
-          state.setWarn("google", "可达（IP 同国外出口）", "", latency, source);
+          state.setWarn(
+            "google",
+            "可达（IP 推断自国外出口）",
+            "",
+            latency,
+            source,
+            run.id,
+          );
         }
         return;
       }
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return;
       // try next
     }
   }
 
-  state.setError("google", "谷歌链路不可达（疑似被拦截）");
+  state.setError("google", "谷歌链路不可达（疑似被拦截）", run.id);
 }
 
-async function checkCloudflare() {
+async function checkCloudflare(run) {
   let cfIp = null;
   let countryCode = null;
   let latency = null;
@@ -489,7 +607,11 @@ async function checkCloudflare() {
   for (const url of CF_TRACES) {
     try {
       const t0 = performance.now();
-      const res = await safeFetch(url, {}, FOREIGN_TIMEOUT_MS);
+      const res = await safeFetch(
+        url,
+        { signal: run.signal },
+        FOREIGN_TIMEOUT_MS,
+      );
       latency = Math.round(performance.now() - t0);
       if (!res.ok) continue;
       const text = await res.text();
@@ -503,25 +625,26 @@ async function checkCloudflare() {
         source = new URL(url).hostname;
         break;
       }
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return;
       // try next
     }
   }
 
   if (!cfIp) {
-    state.setError("cf", "Cloudflare 链路不可达");
+    state.setError("cf", "Cloudflare 链路不可达", run.id);
     return;
   }
 
   // 2) City-level geolocation lookup
-  const location = await lookupLocation(cfIp);
+  const location = await lookupLocation(cfIp, run.signal);
   if (location) {
-    state.set("cf", cfIp, location, latency, source);
+    state.set("cf", cfIp, location, latency, source, run.id);
     return;
   }
 
   // 3) Fallback: country code only
-  state.set("cf", cfIp, countryCode || "", latency, source);
+  state.set("cf", cfIp, countryCode || "", latency, source, run.id);
 }
 
 // ── Orchestration ─────────────────────────────────────────────────────────────
@@ -530,22 +653,26 @@ function checkAll() {
   const btn = el("refresh-btn");
   if (state._checkTimer) return;
 
-  state._checkTimer = setTimeout(() => {
+  const run = createRunContext();
+
+  const releaseTimer = setTimeout(() => {
+    if (!isCurrentRun(run.id) || state._checkTimer !== releaseTimer) return;
     state._checkTimer = null;
     btn?.classList.remove("spinning");
     btn?.removeAttribute("disabled");
   }, REFRESH_DEBOUNCE_MS);
 
+  state._checkTimer = releaseTimer;
+
   btn?.classList.add("spinning");
   btn?.setAttribute("disabled", "true");
 
-  foreignDeferred = createDeferred();
   resetUI();
   void Promise.allSettled([
-    checkDomestic(),
-    checkForeign(),
-    checkGoogle(),
-    checkCloudflare(),
+    checkDomestic(run),
+    checkForeign(run),
+    checkGoogle(run),
+    checkCloudflare(run),
   ]);
 }
 
@@ -563,7 +690,7 @@ document.querySelector(".card-grid")?.addEventListener("click", (e) => {
 
   // Extract plain text (strip tags / type badge)
   const text = ipEl.textContent?.trim();
-  if (!text || text.includes("检测中") || text.includes("失败")) return;
+  if (!text || !isValidIP(text)) return;
 
   copyToClipboard(text);
 });
@@ -595,7 +722,7 @@ document.querySelector(".card-grid")?.addEventListener("click", (e) => {
   if (e.target.closest(".copy-btn")) return;
 
   const text = ipEl.textContent?.trim();
-  if (!text || text.includes("检测中") || text.includes("失败")) return;
+  if (!text || !isValidIP(text)) return;
   copyToClipboard(text);
 });
 

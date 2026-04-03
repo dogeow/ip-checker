@@ -28,8 +28,8 @@ Comprehensively detect your IP address from multiple network paths, quickly dete
 
 ### Google Test
 
-- Attempts Google checkip endpoint and 204 response probes
-- Detects reachability to Google services and exit IP
+- Uses Google 204 probes to test reachability from the browser
+- Reuses the foreign IP result as the best-effort Google exit when the route is reachable
 
 ### Cloudflare Test
 
@@ -48,7 +48,7 @@ Comprehensively detect your IP address from multiple network paths, quickly dete
 
 ## Usage
 
-1. Open `index.html` in your browser
+1. Open `index.html` in your browser, or serve the folder with a simple local static server for stricter browsers
 2. Page auto-detects IPs from all 4 sources
 3. Click "Re-detect" button to refresh results
 4. Hover or click the 📋 button on IP cards to copy
