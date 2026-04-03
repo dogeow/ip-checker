@@ -73,7 +73,12 @@
 项目结构非常简洁：
 
 - `index.html` — 页面结构
-- `app.js` — 全部业务逻辑（约 550 行）
+- `core.js` — 纯逻辑与汇总规则
+- `browser-utils.js` — Fetch、超时、deferred 和地理查询工具
+- `ui.js` — DOM 渲染、复制交互与前端状态
+- `detectors.js` — 各类网络探测实现
+- `app.js` — 精简后的启动、编排与事件绑定
+- `core.test.js` — 基于 Node 的最小单元测试
 - `styles.css` — 样式定义（约 540 行）
 
 ### 关键超时时间
@@ -83,6 +88,12 @@
 - 其他请求：8 秒
 - 按钮防抖：1.2 秒
 - Toast 显示：1.8 秒
+
+### 运行测试
+
+```bash
+node --test core.test.js
+```
 
 ### 扩展 API 源
 
@@ -107,7 +118,7 @@ const DOMESTIC_APIS = [
 - ✅ **无数据收集** — 本页面不收集、存储、传输任何用户数据
 - ✅ **无追踪脚本** — 不使用分析、统计或广告服务
 
-外部 API 调用遵循各自的隐私政策（如 ipinfo.io），请阅读相关服务的隐私声明。
+> 外部 API 调用遵循各自的隐私政策（如 ipinfo.io），请阅读相关服务的隐私声明。
 
 ## License
 

@@ -73,7 +73,12 @@ Comprehensively detect your IP address from multiple network paths, quickly dete
 Ultra-simple project structure:
 
 - `index.html` — Page markup
-- `app.js` — All business logic (~550 lines)
+- `core.js` — Pure detection helpers and summary logic
+- `browser-utils.js` — Fetch, timeout, deferred, and geo lookup helpers
+- `ui.js` — DOM rendering, copy UX, and client-side state
+- `detectors.js` — Individual network probe implementations
+- `app.js` — Thin bootstrap, orchestration, and event wiring
+- `core.test.js` — Minimal Node-based unit tests for pure logic
 - `styles.css` — Styling (~540 lines)
 
 ### Key Timeouts
@@ -83,6 +88,12 @@ Ultra-simple project structure:
 - Other requests: 8 seconds
 - Button debounce: 1.2 seconds
 - Toast display: 1.8 seconds
+
+### Run Tests
+
+```bash
+node --test core.test.js
+```
 
 ### Adding API Sources
 
@@ -107,7 +118,7 @@ const DOMESTIC_APIS = [
 - ✅ **Zero Collection** — No data is collected, stored, or transmitted
 - ✅ **No Tracking** — No analytics, statistics, or ads
 
-External API calls follow their respective privacy policies.
+> External API calls follow their respective privacy policies.
 
 ## License
 
