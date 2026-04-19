@@ -51,6 +51,7 @@
   /**
    * Build the full detector set with shared runtime dependencies.
    * @param {{
+   *   combineSignals: (signals: (AbortSignal | undefined)[]) => { signal: AbortSignal | undefined, release: () => void },
    *   isCurrentRun: (runId: number) => boolean,
    *   isRunAborted: (signal?: AbortSignal) => boolean,
    *   isValidIP: (value: string) => boolean,
@@ -68,6 +69,7 @@
    * @returns {{ checkAllDetectors: (run: { id: number, signal: AbortSignal, foreignDeferred: { promise: Promise<void> } }) => Promise<PromiseSettledResult<void>[]> }}
    */
   function createDetectors({
+    combineSignals,
     isCurrentRun,
     isRunAborted,
     isValidIP,
@@ -78,43 +80,83 @@
     timeouts,
   }) {
     /**
+     * Probe a single IP endpoint and return the parsed IP, latency, and source.
+     * Throws on any failure so it can be composed with Promise.any.
+     * @param {{ url: string, parse?: (data: any) => { ip?: string, location?: string }, parseText?: boolean }} api
+     * @param {AbortSignal} signal
+     * @param {number} timeoutMs
+     * @returns {Promise<{ ip: string, location: string, latency: number, source: string }>}
+     */
+    async function probeIpEndpoint(api, signal, timeoutMs) {
+      const t0 = performance.now();
+      const res = await safeFetch(api.url, { signal }, timeoutMs);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const text = (await res.text()).trim();
+      if (!text) throw new Error("empty response");
+
+      const latency = Math.round(performance.now() - t0);
+      let ip;
+      let location = "";
+
+      if (api.parseText) {
+        ip = text.split("\n")[0].trim();
+      } else {
+        const parsed = api.parse(JSON.parse(text));
+        ip = parsed.ip?.trim();
+        location = parsed.location || "";
+      }
+
+      if (!ip || !isValidIP(ip)) throw new Error("invalid ip");
+
+      return { ip, location, latency, source: new URL(api.url).hostname };
+    }
+
+    /**
+     * Race multiple IP endpoints; resolve with the first success, abort the rest.
+     * @param {Array<{ url: string, parse?: (data: any) => { ip?: string, location?: string }, parseText?: boolean }>} apis
+     * @param {AbortSignal} runSignal
+     * @param {number} timeoutMs
+     * @returns {Promise<{ ip: string, location: string, latency: number, source: string } | null>}
+     */
+    async function raceIpEndpoints(apis, runSignal, timeoutMs) {
+      const inner = new AbortController();
+      const composite = combineSignals([runSignal, inner.signal]);
+      const signal = composite.signal ?? inner.signal;
+
+      try {
+        const attempts = apis.map((api) => probeIpEndpoint(api, signal, timeoutMs));
+        return await Promise.any(attempts);
+      } catch {
+        return null;
+      } finally {
+        inner.abort();
+        composite.release();
+      }
+    }
+
+    /**
      * Resolve the domestic exit IP from the available mainland endpoints.
      * @param {{ id: number, signal: AbortSignal }} run
      * @returns {Promise<void>}
      */
     async function checkDomestic(run) {
-      for (const api of DOMESTIC_APIS) {
-        try {
-          const t0 = performance.now();
-          const res = await safeFetch(
-            api.url,
-            { signal: run.signal },
-            timeouts.domestic,
-          );
-          if (!res.ok) continue;
+      const winner = await raceIpEndpoints(DOMESTIC_APIS, run.signal, timeouts.domestic);
+      if (isRunAborted(run.signal)) return;
 
-          const text = await res.text();
-          if (!text.trim()) continue;
-
-          const latency = Math.round(performance.now() - t0);
-          const data = api.parse(JSON.parse(text));
-          if (!data.ip || !isValidIP(data.ip)) continue;
-
-          state.setResultForRun(
-            run.id,
-            "domestic",
-            data.ip,
-            data.location,
-            latency,
-            new URL(api.url).hostname,
-          );
-          return;
-        } catch (error) {
-          if (isRunAborted(run.signal)) return;
-        }
+      if (!winner) {
+        state.setErrorForRun(run.id, "domestic");
+        return;
       }
 
-      state.setErrorForRun(run.id, "domestic");
+      state.setResultForRun(
+        run.id,
+        "domestic",
+        winner.ip,
+        winner.location,
+        winner.latency,
+        winner.source,
+      );
     }
 
     /**
@@ -124,49 +166,49 @@
      */
     async function checkForeign(run) {
       try {
-        for (const api of FOREIGN_APIS) {
-          try {
-            const t0 = performance.now();
-            const res = await safeFetch(
-              api.url,
-              { signal: run.signal },
-              timeouts.foreign,
-            );
-            if (!res.ok) continue;
+        const winner = await raceIpEndpoints(FOREIGN_APIS, run.signal, timeouts.foreign);
+        if (isRunAborted(run.signal)) return;
 
-            const text = (await res.text()).trim();
-            if (!text) continue;
-
-            const latency = Math.round(performance.now() - t0);
-            let ip;
-
-            if (api.parseText) {
-              ip = text.split("\n")[0].trim();
-            } else {
-              ip = api.parse(JSON.parse(text)).ip?.trim();
-            }
-
-            if (!ip || !isValidIP(ip)) continue;
-
-            const location = await lookupLocation(ip, run.signal);
-            state.setResultForRun(
-              run.id,
-              "foreign",
-              ip,
-              location || "",
-              latency,
-              new URL(api.url).hostname,
-            );
-            return;
-          } catch (error) {
-            if (isRunAborted(run.signal)) return;
-          }
+        if (!winner) {
+          state.setErrorForRun(run.id, "foreign");
+          return;
         }
 
-        state.setErrorForRun(run.id, "foreign");
+        const location = await lookupLocation(winner.ip, run.signal);
+        state.setResultForRun(
+          run.id,
+          "foreign",
+          winner.ip,
+          location || winner.location || "",
+          winner.latency,
+          winner.source,
+        );
       } finally {
         run.foreignDeferred.resolve();
       }
+    }
+
+    // Responses below this floor are suspected of being local DNS interception
+    // rather than a genuine Google reply, so we reject them.
+    const GOOGLE_MIN_LATENCY_MS = 5;
+
+    /**
+     * Fire one Google probe and classify the outcome.
+     * @param {string} url
+     * @param {AbortSignal} signal
+     * @returns {Promise<{ url: string, latency: number, reachable: boolean }>}
+     */
+    async function probeGoogle(url, signal) {
+      const t0 = performance.now();
+      const res = await safeFetch(
+        url,
+        { mode: "no-cors", signal },
+        timeouts.foreign,
+      );
+      const latency = Math.round(performance.now() - t0);
+      const opaque = res.type === "opaque" || res.type === "opaqueredirect";
+      const reachable = opaque && latency >= GOOGLE_MIN_LATENCY_MS;
+      return { url, latency, reachable };
     }
 
     /**
@@ -175,54 +217,48 @@
      * @returns {Promise<void>}
      */
     async function checkGoogle(run) {
-      for (const url of GOOGLE_PROBES) {
-        try {
-          const t0 = performance.now();
-          const res = await safeFetch(
-            url,
-            { mode: "no-cors", signal: run.signal },
-            timeouts.foreign,
-          );
-          const latency = Math.round(performance.now() - t0);
-          const reachable =
-            res.type === "opaque" ||
-            res.type === "opaqueredirect" ||
-            res.ok ||
-            res.status === 204;
-          if (!reachable) continue;
+      const outcomes = await Promise.allSettled(
+        GOOGLE_PROBES.map((url) => probeGoogle(url, run.signal)),
+      );
+      if (isRunAborted(run.signal)) return;
 
-          await run.foreignDeferred.promise;
-          if (!isCurrentRun(run.id)) return;
+      const successes = outcomes
+        .filter((o) => o.status === "fulfilled" && o.value.reachable)
+        .map((o) => o.value)
+        .sort((a, b) => a.latency - b.latency);
 
-          const foreignIp = state.results.foreign;
-          const source = new URL(url).hostname;
-          if (foreignIp && foreignIp !== "error") {
-            const location = await lookupLocation(foreignIp, run.signal);
-            state.setWarningForRun(
-              run.id,
-              "google",
-              foreignIp,
-              location || "谷歌链路可达",
-              latency,
-              source,
-            );
-          } else {
-            state.setWarningForRun(
-              run.id,
-              "google",
-              "可达（IP 推断自国外出口）",
-              "",
-              latency,
-              source,
-            );
-          }
-          return;
-        } catch (error) {
-          if (isRunAborted(run.signal)) return;
-        }
+      if (successes.length === 0) {
+        state.setErrorForRun(run.id, "google", "谷歌链路不可达（疑似被拦截）");
+        return;
       }
 
-      state.setErrorForRun(run.id, "google", "谷歌链路不可达（疑似被拦截）");
+      const best = successes[0];
+      const source = new URL(best.url).hostname;
+
+      await run.foreignDeferred.promise;
+      if (!isCurrentRun(run.id)) return;
+
+      const foreignIp = state.results.foreign;
+      if (foreignIp && foreignIp !== "error") {
+        const location = await lookupLocation(foreignIp, run.signal);
+        state.setWarningForRun(
+          run.id,
+          "google",
+          foreignIp,
+          location || "谷歌链路可达",
+          best.latency,
+          source,
+        );
+      } else {
+        state.setWarningForRun(
+          run.id,
+          "google",
+          "可达（IP 推断自国外出口）",
+          "",
+          best.latency,
+          source,
+        );
+      }
     }
 
     /**
@@ -295,5 +331,11 @@
     };
   }
 
-  globalScope.IPCheckerDetectors = { createDetectors };
+  const detectorModule = { createDetectors };
+
+  globalScope.IPCheckerDetectors = detectorModule;
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = detectorModule;
+  }
 })(typeof globalThis !== "undefined" ? globalThis : window);

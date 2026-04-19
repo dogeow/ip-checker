@@ -37,31 +37,44 @@
     return { signal: controller.signal, clear: () => clearTimeout(timer) };
   }
 
+  const NOOP = () => {};
+
   /**
-   * Merge multiple abort signals into one signal for a single request.
+   * Merge multiple abort signals into one and expose a release hook so the
+   * caller can detach listeners once the composite signal is no longer needed.
    * @param {(AbortSignal | undefined)[]} signals
-   * @returns {AbortSignal | undefined}
+   * @returns {{ signal: AbortSignal | undefined, release: () => void }}
    */
   function combineSignals(signals) {
     const activeSignals = signals.filter(Boolean);
-    if (activeSignals.length <= 1) return activeSignals[0];
+    if (activeSignals.length === 0) return { signal: undefined, release: NOOP };
+    if (activeSignals.length === 1) return { signal: activeSignals[0], release: NOOP };
 
     if (typeof AbortSignal.any === "function") {
-      return AbortSignal.any(activeSignals);
+      return { signal: AbortSignal.any(activeSignals), release: NOOP };
     }
 
     const controller = new AbortController();
     const abort = () => controller.abort();
+    const attached = [];
 
-    activeSignals.forEach((signal) => {
+    for (const signal of activeSignals) {
       if (signal.aborted) {
         controller.abort();
-        return;
+        break;
       }
-      signal.addEventListener("abort", abort, { once: true });
-    });
+      signal.addEventListener("abort", abort);
+      attached.push(signal);
+    }
 
-    return controller.signal;
+    const release = () => {
+      for (const signal of attached) {
+        signal.removeEventListener("abort", abort);
+      }
+      attached.length = 0;
+    };
+
+    return { signal: controller.signal, release };
   }
 
   /**
@@ -79,10 +92,11 @@
      */
     return async function safeFetch(url, options = {}, timeoutMs = defaultTimeoutMs) {
       const guard = withTimeout(timeoutMs);
+      const composite = combineSignals([guard.signal, options.signal]);
       try {
         return await fetch(url, {
           ...options,
-          signal: combineSignals([guard.signal, options.signal]),
+          signal: composite.signal,
           cache: "no-store",
         });
       } catch (error) {
@@ -92,6 +106,7 @@
         throw error;
       } finally {
         guard.clear();
+        composite.release();
       }
     };
   }
@@ -135,10 +150,18 @@
     };
   }
 
-  globalScope.IPCheckerBrowserUtils = {
+  const browserUtils = {
+    combineSignals,
     createDeferred,
     createGeoLookup,
     createSafeFetch,
     isRunAborted,
+    withTimeout,
   };
+
+  globalScope.IPCheckerBrowserUtils = browserUtils;
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = browserUtils;
+  }
 })(typeof globalThis !== "undefined" ? globalThis : window);

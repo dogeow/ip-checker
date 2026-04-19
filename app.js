@@ -27,6 +27,7 @@ const TOAST_DURATION_MS = 1800;
 const REFRESH_DEBOUNCE_MS = 1200;
 
 const {
+  combineSignals,
   createDeferred,
   createGeoLookup,
   createSafeFetch,
@@ -107,6 +108,7 @@ const guardedState = {
 };
 
 const detectors = detectorModule.createDetectors({
+  combineSignals,
   isCurrentRun,
   isRunAborted,
   isValidIP: core.isValidIP,

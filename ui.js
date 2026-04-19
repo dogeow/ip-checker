@@ -157,14 +157,17 @@
     }
 
     /**
-     * Escape user-visible text before inserting it through innerHTML.
+     * Replace ipEl's children with a single span of the given class and text.
+     * @param {HTMLElement} ipEl
+     * @param {string} className
      * @param {string} text
-     * @returns {string}
      */
-    function escapeHtml(text) {
-      const div = document.createElement("div");
-      div.textContent = text;
-      return div.innerHTML;
+    function renderIpSpan(ipEl, className, text) {
+      ipEl.textContent = "";
+      const span = document.createElement("span");
+      span.className = className;
+      span.textContent = text;
+      ipEl.appendChild(span);
     }
 
     /**
@@ -192,9 +195,9 @@
 
       if (ipEl) {
         if (cardStatus === status.ERROR) {
-          ipEl.innerHTML = `<span class="error">${escapeHtml(ip)}</span>`;
+          renderIpSpan(ipEl, "error", ip);
         } else if (cardStatus === status.LOADING) {
-          ipEl.innerHTML = ip;
+          renderIpSpan(ipEl, "loading", ip);
         } else {
           ipEl.textContent = ip;
         }
@@ -314,7 +317,7 @@
     function resetUI(appState) {
       appState.reset();
       keys.forEach((key) => {
-        renderCard(key, '<span class="loading">检测中</span>', "", status.LOADING);
+        renderCard(key, "检测中", "", status.LOADING);
         const dot = document
           .querySelector(`.card[data-key="${key}"]`)
           ?.querySelector(".card-status");
