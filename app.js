@@ -41,6 +41,7 @@ const ui = uiModule.createUI({
   summarizeResults: core.summarizeResults,
   getLatencyTier: core.getLatencyTier,
   toastDurationMs: TOAST_DURATION_MS,
+  onComplete: () => ui.updateTimestamp(),
 });
 
 const safeFetch = createSafeFetch(API_TIMEOUT_MS);
@@ -177,6 +178,10 @@ function checkAll() {
 function bindEvents() {
   const cardGrid = document.querySelector(".card-grid");
   ui.el("refresh-btn")?.addEventListener("click", checkAll);
+
+  ui.el("copy-all-btn")?.addEventListener("click", () => {
+    ui.copyAllIps();
+  });
 
   cardGrid?.addEventListener("click", (event) => {
     const button = event.target.closest(".copy-btn");

@@ -138,9 +138,10 @@
         const data = JSON.parse(await res.text());
         if (!data.country) return null;
 
-        const location = [data.country, data.region, data.city]
-          .filter(Boolean)
-          .join(" ");
+        const parts = [data.country, data.region, data.city].filter(Boolean);
+        const location = data.org
+          ? `${parts.join(" ")} · ${data.org}`
+          : parts.join(" ");
         geoCache.set(ip, location);
         return location;
       } catch (error) {

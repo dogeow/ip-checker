@@ -14,6 +14,17 @@
       }),
     },
     {
+      url: "https://ip.taobao.com/service/getIpInfo.php?ip=myip",
+      parse: (data) => {
+        if (data.code !== 0 || !data.data) return null;
+        const d = data.data;
+        return {
+          ip: d.ip,
+          location: [d.country, d.region, d.city, d.isp].filter(Boolean).join(" "),
+        };
+      },
+    },
+    {
       url: "https://ip.useragentinfo.com/json",
       parse: (data) => ({
         ip: data.ip,
@@ -29,6 +40,18 @@
   ];
 
   const FOREIGN_APIS = [
+    {
+      url: "https://ipinfo.io/json",
+      parse: (data) => {
+        if (!data.ip) return null;
+        const parts = [data.country, data.region, data.city].filter(Boolean);
+        if (data.org) parts.push(data.org);
+        return {
+          ip: data.ip,
+          location: parts.join(" "),
+        };
+      },
+    },
     { url: "https://api.ipify.org?format=json", parse: (data) => ({ ip: data.ip }) },
     { url: "https://api64.ipify.org?format=json", parse: (data) => ({ ip: data.ip }) },
     { url: "https://api.ip.sb/jsonip", parse: (data) => ({ ip: data.ip }) },
@@ -145,7 +168,7 @@
       if (isRunAborted(run.signal)) return;
 
       if (!winner) {
-        state.setErrorForRun(run.id, "domestic");
+        state.setErrorForRun(run.id, "domestic", "国内检测点不可达");
         return;
       }
 
@@ -170,7 +193,7 @@
         if (isRunAborted(run.signal)) return;
 
         if (!winner) {
-          state.setErrorForRun(run.id, "foreign");
+          state.setErrorForRun(run.id, "foreign", "国外检测点不可达");
           return;
         }
 

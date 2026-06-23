@@ -139,6 +139,7 @@ body {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
+  flex-wrap: wrap;
 }
 
 .summary-title {
@@ -153,6 +154,7 @@ body {
 .summary-status {
   font-size: 0.85rem;
   font-weight: 600;
+  flex: 1 1 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -187,6 +189,38 @@ body {
 .badge-info {
   background: var(--info-bg);
   color: var(--info-text);
+}
+
+.copy-all-btn {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.copy-all-btn:hover {
+  background: var(--line);
+  color: var(--text);
+}
+
+.copy-all-btn:active {
+  transform: translateY(1px);
+}
+
+.summary-time {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── Card Grid ──────────────────────────────────────────────────────────────── */

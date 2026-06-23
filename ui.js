@@ -33,9 +33,17 @@
     summarizeResults,
     getLatencyTier,
     toastDurationMs,
+    onComplete,
   }) {
     const isTouch = !window.matchMedia("(hover: hover)").matches;
     const tipEl = document.getElementById("copy-tip");
+
+    const KEY_LABELS = {
+      domestic: "国内",
+      foreign: "国外",
+      google: "谷歌",
+      cf: "CF",
+    };
 
     /**
      * Fetch a DOM node by id.
@@ -268,6 +276,10 @@
       updateSummary() {
         const summary = summarizeResults(this.results, keys);
         setSummaryStatus(summary.text, summary.badgeText, summary.badgeClass);
+
+        if (onComplete && keys.every((key) => this.results[key] !== null)) {
+          onComplete();
+        }
       }
 
       /**
@@ -326,14 +338,49 @@
       appState.updateSummary();
     }
 
+    /**
+     * Copy all valid IPs from every card to the clipboard.
+     */
+    function copyAllIps() {
+      const entries = [];
+      keys.forEach((key) => {
+        const ipEl = el(`${key}-ip`);
+        const text = ipEl?.textContent?.trim();
+        if (text && isValidIP(text)) {
+          entries.push(`${KEY_LABELS[key] || key}: ${text}`);
+        }
+      });
+      if (entries.length === 0) {
+        showToast("暂无可复制的 IP");
+        return;
+      }
+      copyToClipboard(entries.join("\n"));
+    }
+
+    /**
+     * Update the summary timestamp to the current time.
+     */
+    function updateTimestamp() {
+      const timeEl = el("summary-time");
+      if (!timeEl) return;
+      const now = new Date();
+      timeEl.textContent = now.toLocaleTimeString("zh-CN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
+    }
+
     return {
       AppState,
       copyToClipboard,
+      copyAllIps,
       hideTip,
       isTouch,
       moveTip,
       resetUI,
       showTip,
+      updateTimestamp,
       el,
     };
   }
