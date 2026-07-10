@@ -1,12 +1,12 @@
 "use strict";
 
 /**
- * Register the DOM rendering and interaction helpers on the global scope.
+ * Register the DOM rendering facade and application state on the global scope.
  * @param {typeof globalThis} globalScope
  */
 (function initUI(globalScope) {
   /**
-   * Build the browser-side UI helpers and state container.
+   * Build the browser-side UI facade from reusable components.
    * @param {{
    *   keys: string[],
    *   status: Record<string, string>,
@@ -14,17 +14,8 @@
    *   summarizeResults: (results: Record<string, string | null>, keys: string[]) => { text: string, badgeText: string, badgeClass: string },
    *   getLatencyTier: (latency: number) => string,
    *   toastDurationMs: number,
+   *   onComplete?: () => void,
    * }} options
-   * @returns {{
-   *   AppState: typeof AppState,
-   *   copyToClipboard: (text: string) => Promise<boolean>,
-   *   hideTip: () => void,
-   *   isTouch: boolean,
-   *   moveTip: (x: number, y: number) => void,
-   *   resetUI: (appState: AppState) => void,
-   *   showTip: (text: string, x: number, y: number) => void,
-   *   el: (id: string) => HTMLElement | null,
-   * }}
    */
   function createUI({
     keys,
@@ -35,286 +26,82 @@
     toastDurationMs,
     onComplete,
   }) {
-    const isTouch = !window.matchMedia("(hover: hover)").matches;
-    const tipEl = document.getElementById("copy-tip");
+    const components = globalScope.IPCheckerUIComponents;
+    if (!components) throw new Error("IP Checker UI components are missing");
 
-    const KEY_LABELS = {
-      domestic: "国内",
-      foreign: "国外",
-      google: "谷歌",
-      cf: "CF",
-    };
-
-    /**
-     * Fetch a DOM node by id.
-     * @param {string} id
-     * @returns {HTMLElement | null}
-     */
     const el = (id) => document.getElementById(id);
+    const grid = el("result-grid");
+    const summaryRoot = el("summary");
+    if (!grid || !summaryRoot) throw new Error("IP Checker UI roots are missing");
 
-    /**
-     * Show a transient toast message near the bottom of the page.
-     * @param {string} message
-     */
-    function showToast(message) {
-      const toast = el("toast");
-      if (!toast) return;
-      toast.textContent = message;
-      toast.classList.add("show");
-      clearTimeout(showToast._timer);
-      showToast._timer = setTimeout(
-        () => toast.classList.remove("show"),
-        toastDurationMs,
-      );
-    }
+    const cardRoots = components.mountResultCards(grid, keys);
+    const cards = new Map(
+      Array.from(cardRoots, ([key, root]) => [
+        key,
+        components.createResultCard({
+          root,
+          status,
+          isValidIP,
+          getLatencyTier,
+        }),
+      ]),
+    );
+    const summary = components.createSummary(summaryRoot);
+    const feedback = components.createFeedback({
+      toastElement: el("toast"),
+      tipElement: el("copy-tip"),
+      toastDurationMs,
+    });
+    const copyLabels = new Map(
+      components
+        .getCardDefinitions(keys)
+        .map((definition) => [definition.key, definition.copyLabel]),
+    );
 
-    /**
-     * Copy text using a hidden textarea when the Clipboard API is unavailable.
-     * @param {string} text
-     * @returns {boolean}
-     */
-    function fallbackCopyToClipboard(text) {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.setAttribute("readonly", "");
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      textarea.style.pointerEvents = "none";
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-
-      let copied = false;
-      try {
-        copied = document.execCommand("copy");
-      } finally {
-        textarea.remove();
-      }
-
-      return copied;
-    }
-
-    /**
-     * Copy text and surface the result through the toast UI.
-     * @param {string} text
-     * @returns {Promise<boolean>}
-     */
-    async function copyToClipboard(text) {
-      try {
-        if (navigator.clipboard?.writeText && window.isSecureContext) {
-          await navigator.clipboard.writeText(text);
-        } else if (!fallbackCopyToClipboard(text)) {
-          throw new Error("Clipboard API unavailable");
-        }
-        showToast(`已复制: ${text}`);
-        return true;
-      } catch {
-        showToast("复制失败");
-        return false;
-      }
-    }
-
-    /**
-     * Move the desktop-only tooltip alongside the cursor.
-     * @param {number} x
-     * @param {number} y
-     */
-    function moveTip(x, y) {
-      if (!tipEl) return;
-      tipEl.style.left = `${x + 14}px`;
-      tipEl.style.top = `${y - 28}px`;
-    }
-
-    /**
-     * Reveal the desktop-only tooltip with a short hint.
-     * @param {string} text
-     * @param {number} x
-     * @param {number} y
-     */
-    function showTip(text, x, y) {
-      if (!tipEl || isTouch) return;
-      tipEl.textContent = text;
-      tipEl.style.opacity = "1";
-      moveTip(x, y);
-    }
-
-    /**
-     * Hide the desktop-only copy tooltip.
-     */
-    function hideTip() {
-      if (tipEl) tipEl.style.opacity = "0";
-    }
-
-    /**
-     * Render the summary banner text and optional badge.
-     * @param {string} text
-     * @param {string} [badgeText]
-     * @param {string} [badgeClass]
-     */
-    function setSummaryStatus(text, badgeText = "", badgeClass = "") {
-      const statusEl = el("summary-status");
-      if (!statusEl) return;
-
-      statusEl.textContent = text;
-      if (!badgeText) return;
-
-      const badge = document.createElement("span");
-      badge.className = `badge ${badgeClass}`;
-      badge.textContent = badgeText;
-      statusEl.append(" ", badge);
-    }
-
-    /**
-     * Replace ipEl's children with a single span of the given class and text.
-     * @param {HTMLElement} ipEl
-     * @param {string} className
-     * @param {string} text
-     */
-    function renderIpSpan(ipEl, className, text) {
-      ipEl.textContent = "";
-      const span = document.createElement("span");
-      span.className = className;
-      span.textContent = text;
-      ipEl.appendChild(span);
-    }
-
-    /**
-     * Render a single result card, including its latency and source metadata.
-     * @param {string} key
-     * @param {string} ip
-     * @param {string} location
-     * @param {string} cardStatus
-     * @param {number | null} [latency]
-     * @param {string | null} [source]
-     */
-    function renderCard(key, ip, location, cardStatus, latency = null, source = null) {
-      const ipEl = el(`${key}-ip`);
-      const locEl = el(`${key}-location`);
-      const card = document.querySelector(`.card[data-key="${key}"]`);
-      const statusDot = card?.querySelector(".card-status");
-      const copyBtn = card?.querySelector(".copy-btn");
-
-      if (copyBtn) {
-        copyBtn.hidden =
-          cardStatus === status.LOADING ||
-          cardStatus === status.ERROR ||
-          !isValidIP(ip);
-      }
-
-      if (ipEl) {
-        if (cardStatus === status.ERROR) {
-          renderIpSpan(ipEl, "error", ip);
-        } else if (cardStatus === status.LOADING) {
-          renderIpSpan(ipEl, "loading", ip);
-        } else {
-          ipEl.textContent = ip;
-        }
-      }
-
-      if (locEl) locEl.textContent = location || "";
-
-      let metaEl = card?.querySelector(".card-meta");
-      if (!metaEl && card) {
-        metaEl = document.createElement("div");
-        metaEl.className = "card-meta";
-        card.appendChild(metaEl);
-      }
-
-      if (metaEl) {
-        if (latency !== null && cardStatus !== status.LOADING && cardStatus !== status.ERROR) {
-          const tier = getLatencyTier(latency);
-          metaEl.textContent = "";
-
-          const latencyEl = document.createElement("span");
-          latencyEl.className = `latency ${tier}`;
-          latencyEl.textContent = `${latency} ms`;
-          metaEl.appendChild(latencyEl);
-
-          if (source) {
-            const sourceEl = document.createElement("span");
-            sourceEl.className = "api-source";
-            sourceEl.textContent = source;
-            metaEl.appendChild(sourceEl);
-          }
-        } else {
-          metaEl.textContent = "";
-        }
-      }
-
-      if (statusDot) {
-        statusDot.className =
-          "card-status " +
-          (cardStatus === status.SUCCESS
-            ? status.SUCCESS
-            : cardStatus === status.ERROR
-              ? status.ERROR
-              : status.WARN);
-      }
+    function renderCard(
+      key,
+      ip,
+      location,
+      cardStatus,
+      latency = null,
+      source = null,
+    ) {
+      cards.get(key)?.render({ ip, location, cardStatus, latency, source });
     }
 
     class AppState {
-      /**
-       * Initialize the per-card result state and refresh timer handle.
-       */
       constructor() {
         this.results = Object.fromEntries(keys.map((key) => [key, null]));
         this._checkTimer = null;
       }
 
-      /**
-       * Clear all card results before a fresh detection round starts.
-       */
       reset() {
         keys.forEach((key) => {
           this.results[key] = null;
         });
       }
 
-      /**
-       * Recompute and render the summary banner from the latest results.
-       */
       updateSummary() {
-        const summary = summarizeResults(this.results, keys);
-        setSummaryStatus(summary.text, summary.badgeText, summary.badgeClass);
+        const result = summarizeResults(this.results, keys);
+        summary.render(result.text, result.badgeText, result.badgeClass);
 
         if (onComplete && keys.every((key) => this.results[key] !== null)) {
           onComplete();
         }
       }
 
-      /**
-       * Store and render a successful result for one card.
-       * @param {string} key
-       * @param {string} ip
-       * @param {string} [location]
-       * @param {number | null} [latency]
-       * @param {string | null} [source]
-       */
       setResult(key, ip, location = "", latency = null, source = null) {
         this.results[key] = ip;
         renderCard(key, ip, location, status.SUCCESS, latency, source);
         this.updateSummary();
       }
 
-      /**
-       * Store and render a failed result for one card.
-       * @param {string} key
-       * @param {string} [message]
-       */
       setError(key, message) {
         this.results[key] = "error";
         renderCard(key, message || "检测失败", "", status.ERROR);
         this.updateSummary();
       }
 
-      /**
-       * Store and render a warning result for one card.
-       * @param {string} key
-       * @param {string} ip
-       * @param {string} [location]
-       * @param {number | null} [latency]
-       * @param {string | null} [source]
-       */
       setWarning(key, ip, location = "", latency = null, source = null) {
         this.results[key] = ip;
         renderCard(key, ip, location, status.WARN, latency, source);
@@ -322,66 +109,38 @@
       }
     }
 
-    /**
-     * Reset every card back to its loading state.
-     * @param {AppState} appState
-     */
     function resetUI(appState) {
       appState.reset();
-      keys.forEach((key) => {
-        renderCard(key, "检测中", "", status.LOADING);
-        const dot = document
-          .querySelector(`.card[data-key="${key}"]`)
-          ?.querySelector(".card-status");
-        if (dot) dot.className = "card-status";
-      });
+      keys.forEach((key) => renderCard(key, "检测中", "", status.LOADING));
       appState.updateSummary();
     }
 
-    /**
-     * Copy all valid IPs from every card to the clipboard.
-     */
     function copyAllIps() {
-      const entries = [];
-      keys.forEach((key) => {
-        const ipEl = el(`${key}-ip`);
-        const text = ipEl?.textContent?.trim();
-        if (text && isValidIP(text)) {
-          entries.push(`${KEY_LABELS[key] || key}: ${text}`);
-        }
+      const entries = keys.flatMap((key) => {
+        const value = cards.get(key)?.readIp();
+        return value && isValidIP(value)
+          ? [`${copyLabels.get(key) || key}: ${value}`]
+          : [];
       });
+
       if (entries.length === 0) {
-        showToast("暂无可复制的 IP");
+        feedback.showToast("暂无可复制的 IP");
         return;
       }
-      copyToClipboard(entries.join("\n"));
-    }
-
-    /**
-     * Update the summary timestamp to the current time.
-     */
-    function updateTimestamp() {
-      const timeEl = el("summary-time");
-      if (!timeEl) return;
-      const now = new Date();
-      timeEl.textContent = now.toLocaleTimeString("zh-CN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
+      void feedback.copyToClipboard(entries.join("\n"));
     }
 
     return {
       AppState,
-      copyToClipboard,
       copyAllIps,
-      hideTip,
-      isTouch,
-      moveTip,
-      resetUI,
-      showTip,
-      updateTimestamp,
+      copyToClipboard: feedback.copyToClipboard,
       el,
+      hideTip: feedback.hideTip,
+      isTouch: feedback.isTouch,
+      moveTip: feedback.moveTip,
+      resetUI,
+      showTip: feedback.showTip,
+      updateTimestamp: summary.updateTimestamp,
     };
   }
 

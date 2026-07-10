@@ -75,7 +75,8 @@ Ultra-simple project structure:
 - `index.html` — Page markup
 - `core.js` — Pure detection helpers and summary logic
 - `browser-utils.js` — Fetch, timeout, deferred, and geo lookup helpers
-- `ui.js` — DOM rendering, copy UX, and client-side state
+- `ui-components.js` — Result-card, summary, and interaction-feedback components
+- `ui.js` — UI component orchestration and client-side state
 - `detectors.js` — Individual network probe implementations
 - `app.js` — Thin bootstrap, orchestration, and event wiring
 - `core.test.js` — Minimal Node-based unit tests for pure logic
@@ -92,12 +93,12 @@ Ultra-simple project structure:
 ### Run Tests
 
 ```bash
-node --test core.test.js
+node --test *.test.js
 ```
 
 ### Adding API Sources
 
-Edit `DOMESTIC_APIS` or `FOREIGN_APIS` in `app.js`:
+Edit `DOMESTIC_APIS` or `FOREIGN_APIS` in `detectors.js`:
 
 ```javascript
 const DOMESTIC_APIS = [

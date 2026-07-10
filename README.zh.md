@@ -75,7 +75,8 @@
 - `index.html` — 页面结构
 - `core.js` — 纯逻辑与汇总规则
 - `browser-utils.js` — Fetch、超时、deferred 和地理查询工具
-- `ui.js` — DOM 渲染、复制交互与前端状态
+- `ui-components.js` — 检测卡片、汇总栏与交互反馈组件
+- `ui.js` — UI 组件编排与前端状态
 - `detectors.js` — 各类网络探测实现
 - `app.js` — 精简后的启动、编排与事件绑定
 - `core.test.js` — 基于 Node 的最小单元测试
@@ -92,12 +93,12 @@
 ### 运行测试
 
 ```bash
-node --test core.test.js
+node --test *.test.js
 ```
 
 ### 扩展 API 源
 
-编辑 `app.js` 中的 `DOMESTIC_APIS` 或 `FOREIGN_APIS` 数组：
+编辑 `detectors.js` 中的 `DOMESTIC_APIS` 或 `FOREIGN_APIS` 数组：
 
 ```javascript
 const DOMESTIC_APIS = [

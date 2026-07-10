@@ -32,67 +32,7 @@
         </div>
       </section>
 
-      <main class="card-grid">
-      <!-- 国内测试 -->
-      <article class="card" data-key="domestic">
-        <div class="card-header">
-          <div class="card-icon domestic" aria-hidden="true">CN</div>
-          <div class="card-title">从国内测试</div>
-          <div class="card-status" aria-hidden="true"></div>
-        </div>
-        <div class="ip-row">
-          <div id="domestic-ip" class="ip-display"><span class="loading">检测中</span></div>
-          <button class="copy-btn" aria-label="复制 IP" title="复制 IP" data-copy-target="domestic-ip">📋</button>
-        </div>
-        <div id="domestic-location" class="ip-location"></div>
-        <div class="card-desc">这是您访问国内网站所使用的 IP</div>
-      </article>
-
-      <!-- 国外测试 -->
-      <article class="card" data-key="foreign">
-        <div class="card-header">
-          <div class="card-icon foreign" aria-hidden="true">INTL</div>
-          <div class="card-title">从国外测试</div>
-          <div class="card-status" aria-hidden="true"></div>
-        </div>
-        <div class="ip-row">
-          <div id="foreign-ip" class="ip-display"><span class="loading">检测中</span></div>
-          <button class="copy-btn" aria-label="复制 IP" title="复制 IP" data-copy-target="foreign-ip">📋</button>
-        </div>
-        <div id="foreign-location" class="ip-location"></div>
-        <div class="card-desc">这是您访问海外站点所使用的 IP</div>
-      </article>
-
-      <!-- Google 测试 -->
-      <article class="card" data-key="google">
-        <div class="card-header">
-          <div class="card-icon google" aria-hidden="true">G</div>
-          <div class="card-title">从谷歌测试</div>
-          <div class="card-status" aria-hidden="true"></div>
-        </div>
-        <div class="ip-row">
-          <div id="google-ip" class="ip-display"><span class="loading">检测中</span></div>
-          <button class="copy-btn" aria-label="复制 IP" title="复制 IP" data-copy-target="google-ip">📋</button>
-        </div>
-        <div id="google-location" class="ip-location"></div>
-        <div class="card-desc">这是您访问谷歌系服务所使用的出口</div>
-      </article>
-
-      <!-- Cloudflare 测试 -->
-      <article class="card" data-key="cf">
-        <div class="card-header">
-          <div class="card-icon cloudflare" aria-hidden="true">CF</div>
-          <div class="card-title">从 Cloudflare 测试</div>
-          <div class="card-status" aria-hidden="true"></div>
-        </div>
-        <div class="ip-row">
-          <div id="cf-ip" class="ip-display"><span class="loading">检测中</span></div>
-          <button class="copy-btn" aria-label="复制 IP" title="复制 IP" data-copy-target="cf-ip">📋</button>
-        </div>
-        <div id="cf-location" class="ip-location"></div>
-        <div class="card-desc">这是您访问 Cloudflare 网站时的出口</div>
-      </article>
-    </main>
+      <main class="card-grid" id="result-grid"></main>
     </div>
 
     <footer class="footer-note">
@@ -105,6 +45,7 @@
 
   <script src="./core.js" defer></script>
   <script src="./browser-utils.js" defer></script>
+  <script src="./ui-components.js" defer></script>
   <script src="./ui.js" defer></script>
   <script src="./detectors.js" defer></script>
   <script src="./app.js" defer></script>
