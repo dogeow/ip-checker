@@ -15,21 +15,31 @@
         <h1 class="hero-title">IP 地址检测</h1>
         <p class="hero-subtitle">从不同网络路径检测出口，快速判断直连与分流状态</p>
       </div>
-      <button class="refresh-btn" id="refresh-btn" type="button" aria-label="重新检测">
-        <span class="refresh-icon" aria-hidden="true">↻</span>
-        <span class="refresh-text">重新检测</span>
-      </button>
     </header>
 
     <div class="center-wrap">
-      <!-- 汇总 -->
-      <section class="summary" id="summary">
-        <div class="summary-row">
-          <div class="summary-title">检测汇总</div>
-          <div class="summary-status" id="summary-status" role="status" aria-live="polite">检测中…</div>
-          <button class="copy-all-btn" id="copy-all-btn" type="button" aria-label="复制全部 IP" title="复制全部 IP">📋</button>
-          <div class="summary-time" id="summary-time"></div>
+      <section class="control-panel" aria-label="检测控制">
+        <div class="summary" id="summary">
+          <div class="summary-icon" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <div class="summary-content">
+            <div class="summary-title">检测概览</div>
+            <div class="summary-row">
+              <div class="summary-status" id="summary-status" role="status" aria-live="polite">检测中…</div>
+              <div class="summary-time" id="summary-time"></div>
+            </div>
+          </div>
+          <button class="copy-all-btn" id="copy-all-btn" type="button" aria-label="复制全部 IP" title="复制全部 IP">
+            <span aria-hidden="true">⧉</span>
+          </button>
         </div>
+        <button class="refresh-btn" id="refresh-btn" type="button" aria-label="重新检测">
+          <span class="refresh-icon" aria-hidden="true">↻</span>
+          <span class="refresh-text">重新检测</span>
+        </button>
       </section>
 
       <main class="card-grid" id="result-grid"></main>

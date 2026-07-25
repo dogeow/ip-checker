@@ -15,6 +15,14 @@ test("card definitions cover each detector exactly once", () => {
   assert.equal(new Set(keys).size, keys.length);
 });
 
+test("groups the three international detectors into the overseas card", () => {
+  const overseasKeys = CARD_DEFINITIONS
+    .filter((definition) => definition.group === "overseas")
+    .map((definition) => definition.key);
+
+  assert.deepEqual(overseasKeys, ["foreign", "google", "cf"]);
+});
+
 test("getCardDefinitions preserves requested order", () => {
   const definitions = getCardDefinitions(["cf", "domestic"]);
   assert.deepEqual(

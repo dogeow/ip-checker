@@ -13,6 +13,7 @@
       title: "从国内测试",
       description: "这是您访问国内网站所使用的 IP",
       copyLabel: "国内",
+      group: "domestic",
     }),
     Object.freeze({
       key: "foreign",
@@ -21,6 +22,7 @@
       title: "从国外测试",
       description: "这是您访问海外站点所使用的 IP",
       copyLabel: "国外",
+      group: "overseas",
     }),
     Object.freeze({
       key: "google",
@@ -29,6 +31,7 @@
       title: "从谷歌测试",
       description: "这是您访问谷歌系服务所使用的出口",
       copyLabel: "谷歌",
+      group: "overseas",
     }),
     Object.freeze({
       key: "cf",
@@ -37,6 +40,7 @@
       title: "从 Cloudflare 测试",
       description: "这是您访问 Cloudflare 网站时的出口",
       copyLabel: "CF",
+      group: "overseas",
     }),
   ]);
 
@@ -76,8 +80,11 @@
    * @param {(typeof CARD_DEFINITIONS)[number]} definition
    * @returns {HTMLElement}
    */
-  function createResultCardElement(definition) {
-    const card = createElement("article", "card");
+  function createResultCardElement(definition, compact = false) {
+    const card = createElement(
+      "article",
+      compact ? "result-item" : "card domestic-card",
+    );
     card.dataset.key = definition.key;
 
     const header = createElement("div", "card-header");
@@ -121,6 +128,43 @@
   }
 
   /**
+   * Build one shared card for the overseas detector rows.
+   * @param {Array<(typeof CARD_DEFINITIONS)[number]>} definitions
+   * @returns {{ root: HTMLElement, cards: Map<string, HTMLElement> }}
+   */
+  function createOverseasGroupElement(definitions) {
+    const root = createElement("section", "card overseas-card");
+    root.setAttribute("aria-labelledby", "overseas-card-title");
+
+    const heading = createElement("div", "group-heading");
+    const headingText = createElement("div", "group-heading-text");
+    const eyebrow = createElement("div", "group-eyebrow", "OVERSEAS");
+    const title = createElement("h2", "group-title", "海外出口");
+    title.id = "overseas-card-title";
+    headingText.append(eyebrow, title);
+    heading.append(
+      createElement("div", "group-icon", "INTL"),
+      headingText,
+      createElement(
+        "div",
+        "group-description",
+        "国外站点与服务的出口检测",
+      ),
+    );
+
+    const list = createElement("div", "result-list");
+    const cards = new Map();
+    definitions.forEach((definition) => {
+      const card = createResultCardElement(definition, true);
+      cards.set(definition.key, card);
+      list.appendChild(card);
+    });
+
+    root.append(heading, list);
+    return { root, cards };
+  }
+
+  /**
    * Replace the card grid with configured detector cards.
    * @param {HTMLElement} container
    * @param {string[]} keys
@@ -129,12 +173,24 @@
   function mountResultCards(container, keys) {
     const cards = new Map();
     const fragment = document.createDocumentFragment();
+    const definitions = getCardDefinitions(keys);
 
-    getCardDefinitions(keys).forEach((definition) => {
-      const card = createResultCardElement(definition);
-      cards.set(definition.key, card);
-      fragment.appendChild(card);
-    });
+    definitions
+      .filter((definition) => definition.group !== "overseas")
+      .forEach((definition) => {
+        const card = createResultCardElement(definition);
+        cards.set(definition.key, card);
+        fragment.appendChild(card);
+      });
+
+    const overseasDefinitions = definitions.filter(
+      (definition) => definition.group === "overseas",
+    );
+    if (overseasDefinitions.length > 0) {
+      const overseasGroup = createOverseasGroupElement(overseasDefinitions);
+      overseasGroup.cards.forEach((card, key) => cards.set(key, card));
+      fragment.appendChild(overseasGroup.root);
+    }
 
     container.replaceChildren(fragment);
     return cards;
@@ -336,6 +392,7 @@
   const uiComponents = {
     CARD_DEFINITIONS,
     createFeedback,
+    createOverseasGroupElement,
     createResultCard,
     createResultCardElement,
     createSummary,
